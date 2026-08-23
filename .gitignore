@@ -46,3 +46,4 @@ configs/*.local.yaml
 tmp/
 temp/
 air-build.log
+.workbuddy/
