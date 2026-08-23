@@ -37,7 +37,6 @@ func run() error {
 		Format:     cfg.Log.Format,
 		Dir:        cfg.Log.FilePath,
 		AddSource:  cfg.Log.AddSource,
-		MaxSizeMB:  cfg.Log.MaxSizeMB,
 		MaxBackups: cfg.Log.MaxBackups,
 		MaxAgeDays: cfg.Log.MaxAgeDays,
 	}); err != nil {

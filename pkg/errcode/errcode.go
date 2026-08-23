@@ -150,7 +150,14 @@ var (
 
 // 订单相关错误
 var (
-	ErrOrderNotFound      = New(40001, "订单不存在", http.StatusNotFound)
-	ErrInvalidOrderStatus = New(40002, "无效的订单状态", http.StatusBadRequest)
+	ErrOrderNotFound = New(40001, "订单不存在", http.StatusNotFound)
+	// ErrInvalidOrderStatus 订单状态流转非法或并发冲突，用 409 而非 400。
+	//
+	// 它承担的两类触发场景都是「客户端请求与资源当前状态冲突」，正是 HTTP 409 Conflict
+	// 的标准语义：
+	//  1. 状态流转不合法（如已支付不能再变回待支付、跳过中间态直接完成）；
+	//  2. 并发下原状态已被别的操作改掉（UpdateStatus 乐观锁 RowsAffected==0，统一转成这个错误）。
+	// 用 400 会把它和「参数格式错误」混为一谈，误导调用方；409 才能正确表达「请重新查询当前状态后重试」。
+	ErrInvalidOrderStatus = New(40002, "无效的订单状态", http.StatusConflict)
 	ErrOrderCannotDelete  = New(40003, "订单无法删除", http.StatusBadRequest)
 )

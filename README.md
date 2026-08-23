@@ -120,7 +120,7 @@ myproject/
 │   └── deploy.sh                   # 部署脚本
 │
 ├── docs/swagger/                   # Swagger API 文档（make swagger 生成）
-├── logs/app.log                    # 当前日志，归档为 app_YYYYMMDD_HHMMSS.log
+├── logs/                           # 日志目录，按小时轮转 app_YYYYMMDDHH.log
 │
 ├── test/                           # 测试
 │   ├── user_service_test.go        # service 层单测（手写 mock）
@@ -255,7 +255,7 @@ cmd/  ──▶  internal/bootstrap  ──▶  internal/router ──▶ intern
 | `auth/` | 认证原语 | `jwt.go` 显式限定签名算法与签发者（防算法混淆攻击）；`password.go` 是 bcrypt 封装 |
 | `database/` | MySQL 连接池 + GORM 接入 | SQL 日志走应用 logger 同格式；开 `TranslateError` 才能识别唯一键冲突；日志级别与慢查询阈值可配（生产不打印 SQL 参数） |
 | `cache/` | Redis 客户端 | 只保留 Get/Set/Del + `Client()` 逃生口，不做无意义的命令透传 |
-| `logger/` | 基于标准库 `log/slog` | `logger.C(ctx)` 自动带上 request_id；含按大小切分 + 保留天数/份数的轮转策略 |
+| `logger/` | 基于标准库 `log/slog` | `logger.C(ctx)` 自动带上 request_id；日志按小时轮转（app_YYYYMMDDHH.log），保留天数/份数可配 |
 | `response/` | 统一响应封装 | 生产环境不外泄错误细节（`SetExposeDetails`） |
 | `errcode/` | 错误码体系 | 支持 `Unwrap`/`Is`，可被 `%w` 包装后仍判定类型；`WithCause` 留底层错误进日志但不返给客户端 |
 | `health/` | 依赖健康检查注册表 | 探测结果缓存 2 秒（`/readyz` 无认证，不缓存会被当放大器压 DB）；带摘流状态；一批探测有整体超时且同一时刻只跑一批（不理 ctx 的 checker 挂死时不会持续堆 goroutine）|
@@ -522,7 +522,6 @@ log:
   file_path: "./logs"          # 为空则仅输出 stdout
   log_body: false              # 记录请求/响应体（有内存开销，排查时才开）
   add_source: false            # 记录调用位置
-  max_size_mb: 100             # 单文件上限，超过即归档
   max_backups: 14              # 保留的历史文件数
   max_age_days: 30             # 历史文件保留天数
 
@@ -1036,20 +1035,19 @@ log:
   file_path: "./logs"   # 日志目录，为空则只输出到 stdout
   log_body: false       # 是否记录请求体（含脱敏，仅调试环境开启）
   add_source: false     # 是否记录调用位置 file:line
-  max_size_mb: 100      # 单文件上限，超过即归档
   max_backups: 14       # 保留的历史文件数
   max_age_days: 30      # 历史文件保留天数
 ```
 
 ### 日志文件
 
-当前日志固定写 `logs/app.log`；跨天或超过 `max_size_mb` 时归档为带时间戳的文件，并按 `max_backups` / `max_age_days` 清理历史。只切分不清理的话，磁盘迟早被写满，而磁盘满会连带拖垮数据库和整机。
+日志按小时轮转，文件名形如 `app_YYYYMMDDHH.log`（例如 `app_2026082319.log`），一小时一个文件。历史文件按 `max_backups` / `max_age_days` 清理。只切分不清理的话，磁盘迟早被写满，而磁盘满会连带拖垮数据库和整机。
 
 ```
 logs/
-├── app.log                      # 当前写入
-├── app_20260820_000000.000.log  # 归档
-└── app_20260819_101500.000.log
+├── app_2026082319.log          # 当前小时写入
+├── app_2026082318.log          # 上一小时
+└── app_2026082309.log          # 更早的历史
 ```
 
 ### 日志格式

@@ -26,9 +26,7 @@ type Options struct {
 	Format    string // json / console
 	Dir       string // 日志目录，为空则仅写 stdout
 	AddSource bool   // 是否记录调用位置
-	// 保留策略。只按天切分而不清理，磁盘迟早被写满，
-	// 而磁盘满会连带拖垮数据库和整机。0 表示对应维度不限制。
-	MaxSizeMB  int // 单文件上限，超过则切分出 app_YYYYMMDD_HHMMSS.log
+	// 保留策略（按小时轮转）。0 表示对应维度不限制。
 	MaxBackups int // 保留的历史文件数
 	MaxAgeDays int // 历史文件保留天数
 }
@@ -45,9 +43,8 @@ func Init(opts Options) error {
 
 	if opts.Dir != "" {
 		w, err := newRotateWriter(opts.Dir, retention{
-			maxSizeBytes: int64(opts.MaxSizeMB) * 1024 * 1024,
-			maxBackups:   opts.MaxBackups,
-			maxAge:       time.Duration(opts.MaxAgeDays) * 24 * time.Hour,
+			maxBackups: opts.MaxBackups,
+			maxAge:     time.Duration(opts.MaxAgeDays) * 24 * time.Hour,
 		})
 		if err != nil {
 			return fmt.Errorf("初始化日志文件失败: %w", err)
@@ -57,9 +54,21 @@ func Init(opts Options) error {
 	}
 
 	out := io.MultiWriter(writers...)
+	// 时间字段默认是 RFC3339（2026-08-23T19:26:15.806+08:00），
+	// 用 ReplaceAttr 改成 "年-月-日 时:分:秒"（空格分隔、不带 T 与时区偏移），
+	// 更易读。这是 slog 标准库自定义时间格式的唯一官方途径
+	// （HandlerOptions 本身没有 TimeFieldFormat 字段）。
 	handlerOpts := &slog.HandlerOptions{
 		Level:     parseLevel(opts.Level),
 		AddSource: opts.AddSource,
+		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+			if a.Key == slog.TimeKey {
+				if t, ok := a.Value.Any().(time.Time); ok {
+					a.Value = slog.StringValue(t.Format("2006-01-02 15:04:05"))
+				}
+			}
+			return a
+		},
 	}
 
 	var h slog.Handler
@@ -160,28 +169,34 @@ func Fatal(msg string, fields ...map[string]interface{}) {
 	os.Exit(1)
 }
 
-// ---------- 按天/按大小轮转的文件写入器 ----------
+// ---------- 按小时轮转的文件写入器 ----------
 
 // retention 保留策略，零值表示对应维度不限制
 type retention struct {
-	maxSizeBytes int64
-	maxBackups   int
-	maxAge       time.Duration
+	maxBackups int
+	maxAge     time.Duration
 }
 
-// rotateWriter 按天 + 按大小切分日志文件，并按保留策略清理历史文件。
-// 所有状态变更都在锁内完成：原实现的 checkRotate 在请求 goroutine 里
-// 无锁读写文件句柄，跨天时会 data race。
+// rotateWriter 按小时切分日志文件：每个小时只写一个文件，文件名形如
+// app_YYYYMMDDHH.log（例如 app_2026082319.log），换小时时把当前文件
+// 重命名为上一小时的文件。
+// 所有状态变更都在锁内完成，避免多 goroutine 同时跨小时轮转导致 data race。
 type rotateWriter struct {
-	mu   sync.Mutex
-	dir  string
-	date string
-	size int64
-	f    *os.File
-	ret  retention
+	mu     sync.Mutex
+	dir    string
+	hour   string // 当前活动文件对应的小时，格式 2006010215
+	size   int64
+	f      *os.File
+	ret    retention
 }
 
-const currentLogName = "app.log"
+// currentLogName 当前活动日志文件名：带小时，天然按小时隔离
+func currentLogName(hour string) string {
+	if hour == "" {
+		hour = time.Now().Format("2006010215")
+	}
+	return "app_" + hour + ".log"
+}
 
 func newRotateWriter(dir string, ret retention) (*rotateWriter, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -200,7 +215,7 @@ func (w *rotateWriter) Write(p []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	if w.shouldRotateLocked(len(p)) {
+	if w.shouldRotateLocked() {
 		if err := w.rotateLocked(); err != nil {
 			// 轮转失败不影响本次写入（继续写旧文件），只在 stderr 提示
 			fmt.Fprintf(os.Stderr, "日志轮转失败: %v\n", err)
@@ -214,16 +229,16 @@ func (w *rotateWriter) Write(p []byte) (int, error) {
 	return n, err
 }
 
-func (w *rotateWriter) shouldRotateLocked(incoming int) bool {
-	if time.Now().Format("20060102") != w.date {
-		return true
-	}
-	return w.ret.maxSizeBytes > 0 && w.size+int64(incoming) > w.ret.maxSizeBytes
+// shouldRotateLocked 仅按小时判断：当前小时与活动文件所属小时不同即轮转。
+// 一小时一个文件，简单粗暴。
+func (w *rotateWriter) shouldRotateLocked() bool {
+	return time.Now().Format("2006010215") != w.hour
 }
 
-// openLocked 打开当前写入文件。必须在持有 w.mu 时调用。
+// openLocked 打开当前小时的写入文件。必须在持有 w.mu 时调用。
 func (w *rotateWriter) openLocked() error {
-	path := filepath.Join(w.dir, currentLogName)
+	hour := time.Now().Format("2006010215")
+	path := filepath.Join(w.dir, currentLogName(hour))
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return fmt.Errorf("打开日志文件失败: %w", err)
@@ -236,26 +251,19 @@ func (w *rotateWriter) openLocked() error {
 
 	w.f = f
 	w.size = size
-	w.date = time.Now().Format("20060102")
+	w.hour = hour
 	return nil
 }
 
-// rotateLocked 归档当前文件并重开一个。必须在持有 w.mu 时调用。
+// rotateLocked 换小时时关闭旧小时文件、打开新小时文件，并触发清理。
+// 必须在持有 w.mu 时调用。
+//
+// 注意：活动文件名本身已带小时（app_YYYYMMDDHH.log），因此换小时时
+// 无需 rename——旧文件已经以"旧小时"命名留在目录里了，直接关旧开新即可。
 func (w *rotateWriter) rotateLocked() error {
 	if w.f != nil {
 		_ = w.f.Close()
 		w.f = nil
-	}
-
-	current := filepath.Join(w.dir, currentLogName)
-	if st, err := os.Stat(current); err == nil && st.Size() > 0 {
-		archived, err := w.archiveNameLocked()
-		if err != nil {
-			return err
-		}
-		if err := os.Rename(current, archived); err != nil {
-			return fmt.Errorf("归档日志文件失败: %w", err)
-		}
 	}
 
 	if err := w.openLocked(); err != nil {
@@ -265,27 +273,10 @@ func (w *rotateWriter) rotateLocked() error {
 	return nil
 }
 
-// archiveNameLocked 生成不冲突的归档文件名。
+// cleanupLocked 按保留策略删除历史日志文件。清理失败只提示，不影响日志写入。
 //
-// 只用毫秒时间戳不够：同一毫秒内发生两次轮转（写入量大 + max_size_mb 小）时，
-// os.Rename 会静默覆盖前一个归档文件，丢掉一整段日志且不报错。
-// 冲突时追加序号，保持文件名的字典序仍然等于时间序（cleanupLocked 依赖这一点）。
-func (w *rotateWriter) archiveNameLocked() (string, error) {
-	base := time.Now().Format("20060102_150405.000")
-	for i := 0; i < 100; i++ {
-		name := fmt.Sprintf("app_%s.log", base)
-		if i > 0 {
-			name = fmt.Sprintf("app_%s.%02d.log", base, i)
-		}
-		path := filepath.Join(w.dir, name)
-		if _, err := os.Stat(path); os.IsNotExist(err) {
-			return path, nil
-		}
-	}
-	return "", fmt.Errorf("生成归档文件名失败：%s 同名文件过多", base)
-}
-
-// cleanupLocked 按保留策略删除历史文件。清理失败只提示，不影响日志写入。
+// 文件名形如 app_YYYYMMDDHH.log，字典序即时间序。当前正在写的小时文件
+// （currentLogName(w.hour)）必须排除，绝不能误删。
 func (w *rotateWriter) cleanupLocked() {
 	if w.ret.maxBackups <= 0 && w.ret.maxAge <= 0 {
 		return
@@ -295,11 +286,16 @@ func (w *rotateWriter) cleanupLocked() {
 	if err != nil {
 		return
 	}
-	// 文件名内嵌时间戳，字典序即时间序，倒序后下标越大越旧
+	// 文件名内嵌小时，字典序即时间序，倒序后下标越大越旧
 	sort.Sort(sort.Reverse(sort.StringSlice(entries)))
 
+	active := filepath.Join(w.dir, currentLogName(w.hour))
 	cutoff := time.Now().Add(-w.ret.maxAge)
 	for i, path := range entries {
+		// 永远不删当前正在写入的小时文件
+		if path == active {
+			continue
+		}
 		expired := false
 		if w.ret.maxBackups > 0 && i >= w.ret.maxBackups {
 			expired = true

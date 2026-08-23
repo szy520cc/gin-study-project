@@ -64,9 +64,20 @@ func (r *orderRepository) GetByID(ctx context.Context, id uint64) (*model.Order,
 	return &order, nil
 }
 
-// Update 更新订单
+// Update 更新订单（仅 remark 可变）。
+//
+// 不用 Save：Save 是全字段覆盖，会把 status / user_id / order_no / total_amount_cents
+// 这些订单核心字段一并写回 —— 哪怕调用方只读了一个旧快照，也会把其他字段覆盖成
+// 零值或旧值，造成订单金额、归属、状态被悄无声息地改掉（这就是此前的潜伏 footgun）。
+//
+// 订单是「创建后只改状态」的领域对象，业务侧唯一允许改的就是备注，
+// 因此把可更新字段锁死在 remark 这一个白名单内。状态变更必须走带乐观锁的
+// UpdateStatus，绝不走这里。
 func (r *orderRepository) Update(ctx context.Context, order *model.Order) error {
-	return wrapErr(r.conn(ctx).Save(order).Error)
+	return wrapErr(r.conn(ctx).Model(&model.Order{}).
+		Where("id = ?", order.ID).
+		Select("remark").
+		Updates(order).Error)
 }
 
 // UpdateStatus 更新订单状态。

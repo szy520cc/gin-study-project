@@ -110,10 +110,10 @@ type LogConfig struct {
 	FilePath  string `mapstructure:"file_path"`  // 日志目录，为空则仅输出到 stdout
 	LogBody   bool   `mapstructure:"log_body"`   // 是否记录请求/响应体（会带来内存拷贝开销）
 	AddSource bool   `mapstructure:"add_source"` // 是否记录调用位置
-	// 以下三项是保留策略。只按天切分而不清理，跑几个月就会把磁盘写满，
+	// 以下两项是日志保留策略。日志按小时轮转（app_YYYYMMDDHH.log，
+	// 一小时一个文件），只切分不清理会把磁盘写满，
 	// 而磁盘满会连带拖垮数据库和整机。
-	MaxSizeMB  int `mapstructure:"max_size_mb"`  // 单文件上限，超过则切分，0 表示不限制
-	MaxBackups int `mapstructure:"max_backups"`  // 保留的历史文件数，0 表示不限制
+	MaxBackups int `mapstructure:"max_backups"`  // 保留的历史文件数（不含当前小时），0 表示不限制
 	MaxAgeDays int `mapstructure:"max_age_days"` // 历史文件保留天数，0 表示不限制
 }
 
@@ -205,7 +205,6 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("log.format", "json")
 	v.SetDefault("log.log_body", false)
 	v.SetDefault("log.add_source", false)
-	v.SetDefault("log.max_size_mb", 100)
 	v.SetDefault("log.max_backups", 14)
 	v.SetDefault("log.max_age_days", 30)
 
@@ -372,8 +371,8 @@ func (c *Config) Validate() error {
 	if !isOneOf(c.Log.Format, "json", "console") {
 		errs = append(errs, fmt.Sprintf("log.format 非法: %q（可选 json/console）", c.Log.Format))
 	}
-	if c.Log.MaxSizeMB < 0 || c.Log.MaxBackups < 0 || c.Log.MaxAgeDays < 0 {
-		errs = append(errs, "log.max_size_mb/max_backups/max_age_days 不能为负（负值会让保留策略静默失效）")
+	if c.Log.MaxBackups < 0 || c.Log.MaxAgeDays < 0 {
+		errs = append(errs, "log.max_backups/max_age_days 不能为负（负值会让保留策略静默失效）")
 	}
 	if c.RateLimit.Enabled {
 		if c.RateLimit.RPS <= 0 || c.RateLimit.Burst <= 0 {

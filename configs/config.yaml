@@ -59,7 +59,6 @@ log:
   log_body: false # 打开后记录请求/响应体（有内存拷贝开销，仅排查问题时开）
   add_source: false
   # 保留策略：只切分不清理，磁盘迟早写满，而磁盘满会连带拖垮数据库
-  max_size_mb: 100 # 单文件上限，超过即归档
   max_backups: 14 # 保留的历史文件数
   max_age_days: 30 # 历史文件保留天数
 
