@@ -1,0 +1,33 @@
+# Docker 构建上下文排除项。
+#
+# 没有这个文件时 Dockerfile 里的 `COPY . .` 会把本机凭据（configs/*.local.yaml）、
+# 历史日志和 .git 一起拷进 builder 层。最终镜像虽然只 COPY 二进制，
+# 但 builder 层一旦被推送或作为构建缓存导出就等于泄露；
+# 同时任何无关文件的改动都会击穿 go mod download 之上的缓存。
+
+# 凭据与本地覆盖配置
+configs/*.local.yaml
+*.env
+.env*
+
+# 版本控制与 IDE
+.git
+.gitignore
+.github
+.idea
+.vscode
+.DS_Store
+
+# 构建产物与运行期文件
+build/
+bin/
+tmp/
+logs/
+*.log
+coverage.out
+*.test
+
+# 文档与脚本（镜像里不需要）
+*.md
+docs/
+scripts/

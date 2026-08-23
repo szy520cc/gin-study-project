@@ -1,0 +1,82 @@
+# 默认配置（所有环境共享的基线值）
+#
+# 约定：
+#   1. 本文件会被版本管理，**不要写任何真实凭据**。
+#   2. 本机开发把真实值写进 config/config.local.yaml（已被 .gitignore 忽略）。
+#   3. 测试/生产通过环境变量注入，命名规则 APP_ + 大写 key + 下划线，例如：
+#        APP_DATABASE_PASSWORD、APP_REDIS_PASSWORD、APP_JWT_SECRET
+#   4. 未在此列出的项使用 config.go:setDefaults 中的默认值。
+
+server:
+  addr: ":8080"
+  mode: "debug" # debug / release / test
+  read_timeout: 10
+  write_timeout: 10
+  idle_timeout: 60
+  read_header_timeout: 5
+  request_timeout: 10 # 单请求处理超时，0 表示不限制
+  shutdown_timeout: 15
+  max_header_bytes: 1048576
+  max_body_bytes: 1048576 # 请求体上限（字节）。header 上限管不到 body，不设限会被大 JSON 打爆内存
+  # 可信代理网段。留空表示只信任 RemoteAddr（直连部署）。
+  # 有网关/LB 时必须填其网段，否则 gin 会信任伪造的 X-Forwarded-For，
+  # 导致按 IP 的限流被绕过、日志里的来源 IP 不可信。
+  trusted_proxies: []
+  drain_delay: 5 # 收到 SIGTERM 后先让 /readyz 返回 503 并等待这么久，给 LB 摘流的时间
+  enable_hsts: false # 仅 HTTPS 有意义；证书没配好时开启会导致全站不可用
+
+# 内部管理端口：/metrics、/debug/pprof、/version
+# 这些端点会暴露路由清单、流量特征与堆信息，默认只监听回环地址。
+# 需要被 Prometheus 跨机抓取时改成 0.0.0.0:9090，并用安全组限制来源。
+admin:
+  addr: "127.0.0.1:9090" # 留空则不启动 admin 服务
+  pprof: true
+
+database:
+  driver: "mysql"
+  host: "127.0.0.1"
+  port: 3306
+  username: "root"
+  password: "" # 通过 APP_DATABASE_PASSWORD 或 config.local.yaml 注入
+  dbname: "gin"
+  max_idle_conns: 10
+  max_open_conns: 100
+  conn_max_lifetime: 60 # 分钟
+  log_level: "warn" # silent / error / warn / info
+  slow_threshold: 200 # 毫秒
+
+redis:
+  enabled: true
+  host: "127.0.0.1"
+  port: 6379
+  password: "" # 通过 APP_REDIS_PASSWORD 或 config.local.yaml 注入
+  db: 0
+
+log:
+  level: "info"
+  format: "json" # json / console
+  file_path: "./logs" # 为空则仅输出到 stdout
+  log_body: false # 打开后记录请求/响应体（有内存拷贝开销，仅排查问题时开）
+  add_source: false
+  # 保留策略：只切分不清理，磁盘迟早写满，而磁盘满会连带拖垮数据库
+  max_size_mb: 100 # 单文件上限，超过即归档
+  max_backups: 14 # 保留的历史文件数
+  max_age_days: 30 # 历史文件保留天数
+
+jwt:
+  secret: "" # 必填，通过 APP_JWT_SECRET 或 config.local.yaml 注入；生产要求 >= 32 位
+  expire_time: 24 # 小时
+  issuer: "myproject"
+
+cors:
+  allow_origins:
+    - "*"
+  allow_credentials: false # 与 * 互斥，需要带 cookie 时必须改成显式白名单
+  max_age: 12 # 小时
+
+rate_limit:
+  enabled: true # 默认开启：关闭时登录接口（bcrypt）可被少量并发打满 CPU
+  rps: 50 # 每 IP 每秒请求数
+  burst: 100
+  auth_rps: 1 # 注册/登录单独配额，用于挡暴力破解
+  auth_burst: 5

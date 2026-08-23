@@ -1,0 +1,156 @@
+// Package errcode 定义业务错误码体系。
+//
+// 相比原实现补了三件事：
+//  1. 支持 Unwrap/Is，可以用 fmt.Errorf("...: %w", err) 包装底层错误后仍能判断类型；
+//  2. WithCause 保留底层错误用于日志排查，但不会返回给客户端；
+//  3. Details 可被 response 层读取，非生产环境返回给调用方，便于联调。
+package errcode
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net/http"
+)
+
+// StatusClientClosedRequest 客户端主动断开。非标准状态码（nginx 约定），
+// 用于把「客户端取消」与「服务端出错」在日志和监控里区分开。
+const StatusClientClosedRequest = 499
+
+// Error 业务错误。不可变：WithDetails/WithCause 均返回副本，
+// 因此包级预定义的错误变量可以安全地被并发复用。
+type Error struct {
+	code       int
+	message    string
+	details    string
+	httpStatus int
+	cause      error
+}
+
+// New 创建错误
+func New(code int, message string, httpStatus int) *Error {
+	return &Error{code: code, message: message, httpStatus: httpStatus}
+}
+
+// Code 业务错误码
+func (e *Error) Code() int { return e.code }
+
+// Message 面向用户的错误信息
+func (e *Error) Message() string { return e.message }
+
+// Details 附加细节（如参数校验的具体原因）
+func (e *Error) Details() string { return e.details }
+
+// HTTPStatus HTTP 状态码
+func (e *Error) HTTPStatus() int { return e.httpStatus }
+
+// Cause 底层错误
+func (e *Error) Cause() error { return e.cause }
+
+// Error 实现 error 接口
+func (e *Error) Error() string {
+	msg := fmt.Sprintf("code: %d, message: %s", e.code, e.message)
+	if e.details != "" {
+		msg += ", details: " + e.details
+	}
+	if e.cause != nil {
+		msg += ", cause: " + e.cause.Error()
+	}
+	return msg
+}
+
+// Unwrap 支持 errors.Is / errors.As 穿透到底层错误
+func (e *Error) Unwrap() error { return e.cause }
+
+// Is 让包装过 details/cause 的副本仍能被 errors.Is 判定为同一业务错误
+func (e *Error) Is(target error) bool {
+	t, ok := target.(*Error)
+	if !ok {
+		return false
+	}
+	return e.code == t.code
+}
+
+// WithDetails 附加细节，返回副本
+func (e *Error) WithDetails(format string, args ...interface{}) *Error {
+	c := *e
+	if len(args) == 0 {
+		c.details = format
+	} else {
+		c.details = fmt.Sprintf(format, args...)
+	}
+	return &c
+}
+
+// WithCause 附加底层错误，返回副本
+func (e *Error) WithCause(err error) *Error {
+	c := *e
+	c.cause = err
+	return &c
+}
+
+// From 把任意 error 转成 *Error。
+//
+// 优先级：
+//  1. 已是业务错误则原样返回；
+//  2. context 超时/取消单独识别 —— 否则请求超时会被兜成 500「内部错误」，
+//     日志刷 error、告警误报，排查方向被带偏；
+//  3. 其余包装成内部错误。
+func From(err error) *Error {
+	if err == nil {
+		return nil
+	}
+	var be *Error
+	if errors.As(err, &be) {
+		return be
+	}
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return ErrTimeout.WithCause(err)
+	case errors.Is(err, context.Canceled):
+		return ErrClientClosed.WithCause(err)
+	}
+	return ErrInternal.WithCause(err)
+}
+
+// 通用错误
+var (
+	ErrSuccess       = New(0, "success", http.StatusOK)
+	ErrInternal      = New(10001, "内部错误", http.StatusInternalServerError)
+	ErrInvalidParams = New(10002, "参数错误", http.StatusBadRequest)
+	ErrNotFound      = New(10003, "资源不存在", http.StatusNotFound)
+	ErrUnauthorized  = New(10004, "未授权", http.StatusUnauthorized)
+	ErrForbidden     = New(10005, "禁止访问", http.StatusForbidden)
+	ErrTooManyReq    = New(10006, "请求过于频繁", http.StatusTooManyRequests)
+	ErrTimeout       = New(10007, "请求处理超时", http.StatusGatewayTimeout)
+	// ErrMethodNotAllowed 路径存在但方法不匹配。需要 gin 开启 HandleMethodNotAllowed 才会触发。
+	ErrMethodNotAllowed = New(10008, "方法不允许", http.StatusMethodNotAllowed)
+	// ErrClientClosed 客户端主动断开。响应写不出去了，返回码只用于日志/监控归类。
+	ErrClientClosed = New(10009, "客户端已断开", StatusClientClosedRequest)
+	// ErrBodyTooLarge 请求体超过限制
+	ErrBodyTooLarge = New(10010, "请求体过大", http.StatusRequestEntityTooLarge)
+)
+
+// 认证相关错误
+var (
+	ErrTokenNotFound = New(20001, "Token 不存在", http.StatusUnauthorized)
+	ErrTokenInvalid  = New(20002, "Token 无效", http.StatusUnauthorized)
+	ErrTokenExpired  = New(20003, "Token 已过期", http.StatusUnauthorized)
+	ErrTokenGenerate = New(20004, "Token 生成失败", http.StatusInternalServerError)
+)
+
+// 用户相关错误
+var (
+	ErrUserNotFound      = New(30001, "用户不存在", http.StatusNotFound)
+	ErrUserAlreadyExist  = New(30002, "用户已存在", http.StatusBadRequest)
+	ErrEmailAlreadyExist = New(30003, "邮箱已被注册", http.StatusBadRequest)
+	ErrPasswordIncorrect = New(30004, "密码错误", http.StatusBadRequest)
+	ErrUserDisabled      = New(30005, "用户已被禁用", http.StatusForbidden)
+)
+
+// 订单相关错误
+var (
+	ErrOrderNotFound      = New(40001, "订单不存在", http.StatusNotFound)
+	ErrInvalidOrderStatus = New(40002, "无效的订单状态", http.StatusBadRequest)
+	ErrOrderCannotDelete  = New(40003, "订单无法删除", http.StatusBadRequest)
+)

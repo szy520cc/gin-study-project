@@ -1,0 +1,12 @@
+# 测试环境配置 - 仅覆盖需要修改的配置项，其他继承默认配置
+
+server:
+  addr: ":8081"
+  mode: "test"
+
+log:
+  level: "debug"
+  format: "console"
+
+database:
+  log_level: "warn"

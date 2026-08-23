@@ -1,0 +1,50 @@
+# 生产环境配置 —— 仅覆盖与默认配置的差异项。
+#
+# 凭据一律不落盘，必须由部署环境注入：
+#   APP_DATABASE_HOST / APP_DATABASE_USERNAME / APP_DATABASE_PASSWORD / APP_DATABASE_DBNAME
+#   APP_REDIS_HOST / APP_REDIS_PASSWORD
+#   APP_JWT_SECRET   （长度 >= 32，否则启动时校验失败）
+
+server:
+  addr: ":8080"
+  mode: "release"
+  request_timeout: 5
+  shutdown_timeout: 30
+  drain_delay: 10 # 给 LB 摘流留足时间，通常 >= 探测间隔的两倍
+  enable_hsts: true # 生产走 HTTPS，证书确认无误后再开
+  # 生产通常在 LB/网关后面：必须填真实网段，否则 ClientIP 取的是伪造值。
+  # 直连部署则保持为空。
+  trusted_proxies: []
+
+# pprof 在生产默认关闭：profile 期间有额外开销，且能被反复触发当成 DoS。
+# 需要排查时再临时打开（APP_ADMIN_PPROF=true）。
+admin:
+  addr: "127.0.0.1:9090"
+  pprof: false
+
+database:
+  log_level: "warn" # 生产不打印全量 SQL，避免泄露参数与性能损耗
+  slow_threshold: 200
+  max_open_conns: 200
+
+log:
+  level: "info"
+  format: "json"
+  log_body: false
+  max_size_mb: 200
+  max_backups: 30
+  max_age_days: 30
+
+cors:
+  # 生产必须替换为真实前端域名
+  allow_origins:
+    - "https://example.com"
+  allow_credentials: true
+  max_age: 12
+
+rate_limit:
+  enabled: true
+  rps: 100
+  burst: 200
+  auth_rps: 1
+  auth_burst: 5

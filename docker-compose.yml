@@ -1,0 +1,45 @@
+version: "3.9"
+
+# 本地开发依赖：一键起 MySQL 与 Redis，避免"装环境"成为上手门槛。
+#   docker compose up -d
+#   make migrate ENV=dev
+#
+# 只用于本地：口令是明文的弱口令，端口也直接映射到宿主机。
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: gin-study-mysql
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: devpassword
+      MYSQL_DATABASE: gin
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    # 有 healthcheck，app 才能用 depends_on: condition: service_healthy
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-pdevpassword"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    container_name: gin-study-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  mysql-data:
+  redis-data:

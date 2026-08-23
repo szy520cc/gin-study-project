@@ -1,0 +1,42 @@
+# golangci-lint 配置。目标是「能拦住真问题，不制造噪音」：
+# 只开默认集合加少量高信噪比的检查，不开风格类 linter 刷屏。
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  enable:
+    # 默认集合：errcheck / gosimple / govet / ineffassign / staticcheck / unused
+    - bodyclose # HTTP 响应体未关闭 —— 会泄露连接
+    - errorlint # 该用 errors.Is/As 的地方用了 == / 类型断言
+    - noctx # 发起 HTTP 请求时没传 ctx，超时与取消会失效
+    - rowserrcheck # 忘记检查 sql.Rows.Err()
+    - sqlclosecheck # sql.Rows/Stmt 未关闭
+    - contextcheck # 传了错误的 ctx（如该传请求 ctx 却传了 Background）
+    - misspell
+    - unconvert
+    - goconst
+
+linters-settings:
+  errcheck:
+    # 这些方法的返回值忽略掉是常见且无害的
+    exclude-functions:
+      - (io.Closer).Close
+      - (*os.File).Close
+  goconst:
+    min-occurrences: 4
+  govet:
+    enable:
+      - shadow
+
+issues:
+  exclude-rules:
+    # 测试里允许更宽松的写法
+    - path: _test\.go
+      linters:
+        - errcheck
+        - goconst
+  # 默认只报新增问题会漏掉存量问题，这里全量报
+  new: false
+  max-issues-per-linter: 0
+  max-same-issues: 0

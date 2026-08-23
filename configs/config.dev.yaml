@@ -1,0 +1,15 @@
+# 开发环境配置 - 仅覆盖需要修改的配置项，其他继承默认配置
+# 真实凭据请写在 config/config.local.yaml（不入版本库）
+
+server:
+  addr: ":8080"
+  mode: "debug"
+  request_timeout: 30 # 本地调试留足断点时间
+
+log:
+  level: "debug"
+  format: "console"
+  log_body: true
+
+database:
+  log_level: "info"
