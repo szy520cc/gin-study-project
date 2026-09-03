@@ -17,7 +17,7 @@ import (
 // 两道防线：
 //  1. Content-Length 已声明且超限 —— 直接拒绝，不读一个字节；
 //  2. 未声明（chunked）或声明造假 —— 用 MaxBytesReader 在读取过程中截断，
-//     handler 侧 bindJSON 会把 *http.MaxBytesError 映射成 413。
+//     controller 侧 bindJSON 会把 *http.MaxBytesError 映射成 413。
 func BodyLimit(maxBytes int64) gin.HandlerFunc {
 	if maxBytes <= 0 {
 		return NoOp()

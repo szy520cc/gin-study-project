@@ -93,6 +93,23 @@ type OrderResponse struct {
 	CreatedAt        time.Time `json:"created_at"`
 }
 
+// ToResponse 将 Order 转换为响应体。
+// 转换函数放在 model 上（与 User.ToResponse 一致），service 直接调，
+// 不用每个模块在 service 里再抄一个 toXxxResponse。
+func (o *Order) ToResponse() *OrderResponse {
+	return &OrderResponse{
+		ID:               o.ID,
+		OrderNo:          o.OrderNo,
+		UserID:           o.UserID,
+		TotalAmountCents: o.TotalAmountCents,
+		TotalAmountText:  FormatCents(o.TotalAmountCents),
+		Status:           o.Status,
+		StatusText:       GetStatusText(o.Status),
+		Remark:           o.Remark,
+		CreatedAt:        o.CreatedAt,
+	}
+}
+
 // FormatCents 把「分」格式化成两位小数的金额字符串，全程整数运算不引入浮点误差
 func FormatCents(cents int64) string {
 	sign := ""

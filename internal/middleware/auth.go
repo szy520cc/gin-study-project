@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"myproject/pkg/auth"
+	"myproject/internal/resource"
 	"myproject/pkg/errcode"
 	"myproject/pkg/logger"
 	"myproject/pkg/response"
@@ -20,9 +20,11 @@ import (
 // 用户名对排查/审计有用的地方是日志，所以改为直接补进 ctx logger（见下）。
 const CtxUserID = "user_id"
 
-// Auth JWT 认证中间件
-func Auth(jwtManager *auth.JWTManager) gin.HandlerFunc {
+// Auth JWT 认证中间件。
+// 校验器从 resource 取，不再由调用方注入 —— 进程内只有一份 JWTManager。
+func Auth() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		jwtManager := resource.JWT()
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
 			response.Error(c, errcode.ErrTokenNotFound)
@@ -58,7 +60,7 @@ func Auth(jwtManager *auth.JWTManager) gin.HandlerFunc {
 
 // RequireUserID 取当前登录用户 ID，取不到就直接回 401 并中断请求，返回 false。
 //
-// handler 一律用这个而不是 CurrentUserID：后者取不到身份时返回 0（fail-open），
+// controller 一律用这个而不是 CurrentUserID：后者取不到身份时返回 0（fail-open），
 // 一旦某个新路由组漏挂 Auth，接口不会 401，而是拿 user_id=0 去读写数据 ——
 // 落一批归属为 0 的订单，或把 user_id=0 的数据返回给匿名调用方。
 func RequireUserID(c *gin.Context) (uint64, bool) {

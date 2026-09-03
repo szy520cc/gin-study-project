@@ -11,7 +11,7 @@ import (
 //
 // 只设置 deadline、不额外起 goroutine 抢写响应：
 // gin 的 ResponseWriter 不是并发安全的，超时 goroutine 直接写响应
-// 会与业务 handler 争抢，产生「superfluous WriteHeader」和数据竞争。
+// 会与业务 controller 争抢，产生「superfluous WriteHeader」和数据竞争。
 //
 // 生效前提是下游都尊重 ctx —— 本项目 repository 全部走 conn(ctx)，
 // GORM 会把 ctx 传给 database/sql，超时后 SQL 会被取消。

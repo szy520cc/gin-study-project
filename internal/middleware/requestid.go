@@ -21,7 +21,7 @@ const (
 
 // RequestID 为每个请求生成（或透传上游的）唯一标识，并绑定到 ctx 中的 logger。
 //
-// 这是全链路排查的地基：绑定之后，handler / service / repository 里
+// 这是全链路排查的地基：绑定之后，controller / service / data 里
 // 任何 logger.C(ctx).Info(...) 都会自动带上 request_id，
 // 无需手工层层传参。
 func RequestID() gin.HandlerFunc {
@@ -70,7 +70,7 @@ func sanitizeRequestID(id string) string {
 
 // 不提供 GetRequestID(c) 包装：原来那个函数零调用，
 // 而 c.GetString(RequestIDKey) 本身就是一行。
-// 需要在 handler 里拿 request_id 时直接用 RequestIDKey。
+// 需要在 controller 里拿 request_id 时直接用 RequestIDKey。
 
 func newRequestID() string {
 	b := make([]byte, 12)

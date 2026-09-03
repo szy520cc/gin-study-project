@@ -10,6 +10,21 @@ import (
 // 配置是最容易「配了但没生效」的地方：默认值、环境变量覆盖、启动校验
 // 三者任一失效都不会报错，只会在线上表现为奇怪的行为。这里逐项锁住。
 
+// TestMain 清掉进程里所有 APP_* 环境变量。
+// 本包的用例靠临时目录里的 yaml 断言加载结果，而 Load 会 BindEnv 每个 key ——
+// 跑集成测试时 shell 里往往设着 APP_DATABASE_*，不清理的话它们会覆盖
+// 用例的 fixture，让断言以「看起来像 bug」的方式失败。
+func TestMain(m *testing.M) {
+	for _, kv := range os.Environ() {
+		if strings.HasPrefix(kv, "APP_") {
+			if i := strings.IndexByte(kv, '='); i > 0 {
+				_ = os.Unsetenv(kv[:i])
+			}
+		}
+	}
+	os.Exit(m.Run())
+}
+
 const minimalYAML = `
 database:
   host: "127.0.0.1"

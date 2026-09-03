@@ -1,8 +1,8 @@
 // Package health 提供依赖健康检查注册表。
 //
 // 原实现把 *gorm.DB 直接塞进 HealthHandler，每加一个依赖（Redis、MQ、下游服务）
-// 就要往 handler 里塞一个客户端。这里改为注册表模式：
-// 各基础设施在装配阶段注册自己的探测函数，handler 只负责遍历。
+// 就要往 HTTP 层里塞一个客户端。这里改为注册表模式：
+// 各基础设施在装配阶段注册自己的探测函数，探针接口只负责遍历。
 package health
 
 import (
@@ -14,28 +14,18 @@ import (
 	"time"
 )
 
-// Checker 单个依赖的健康探测
-type Checker interface {
-	Name() string
-	Check(ctx context.Context) error
+// checker 单个依赖的健康探测。
+// 不做成导出 interface：探测就是「一个名字 + 一个函数」，
+// 用 RegisterFunc 注册即可，没有第二种实现形态需要抽象。
+type checker struct {
+	name string
+	fn   func(ctx context.Context) error
 }
-
-// CheckerFunc 函数式 Checker
-type CheckerFunc struct {
-	CheckerName string
-	Fn          func(ctx context.Context) error
-}
-
-// Name 依赖名称
-func (c CheckerFunc) Name() string { return c.CheckerName }
-
-// Check 执行探测
-func (c CheckerFunc) Check(ctx context.Context) error { return c.Fn(ctx) }
 
 // Registry 健康检查注册表
 type Registry struct {
 	mu       sync.RWMutex
-	checkers []Checker
+	checkers []checker
 	timeout  time.Duration
 
 	// 探测结果缓存。/readyz 无认证且会真打下游，不缓存的话
@@ -71,16 +61,11 @@ func NewRegistry(timeout, cacheTTL time.Duration) *Registry {
 	return &Registry{timeout: timeout, cacheTTL: cacheTTL}
 }
 
-// Register 注册依赖
-func (r *Registry) Register(c Checker) {
+// RegisterFunc 注册一个依赖的探测函数
+func (r *Registry) RegisterFunc(name string, fn func(ctx context.Context) error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.checkers = append(r.checkers, c)
-}
-
-// RegisterFunc 以函数形式注册依赖
-func (r *Registry) RegisterFunc(name string, fn func(ctx context.Context) error) {
-	r.Register(CheckerFunc{CheckerName: name, Fn: fn})
+	r.checkers = append(r.checkers, checker{name: name, fn: fn})
 }
 
 // Result 单个依赖的探测结果
@@ -181,7 +166,7 @@ func (r *Registry) cachedReport() (Report, bool) {
 // check 并发探测所有依赖
 func (r *Registry) check(ctx context.Context) Report {
 	r.mu.RLock()
-	checkers := make([]Checker, len(r.checkers))
+	checkers := make([]checker, len(r.checkers))
 	copy(checkers, r.checkers)
 	r.mu.RUnlock()
 
@@ -197,16 +182,16 @@ func (r *Registry) check(ctx context.Context) Report {
 	results := make(chan outcome, len(checkers))
 
 	for _, c := range checkers {
-		go func(c Checker) {
+		go func(c checker) {
 			// 探测函数来自各基础设施，panic 不会被 gin 的 Recovery 接住，
 			// 这里兜住并转成 error：一个探测实现的 bug 不该杀进程，
 			// 但也必须体现为「不健康」而不是被静默忽略。
-			err := safego.RunE(ctx, "health-check-"+c.Name(), func() error {
+			err := safego.RunE(ctx, "health-check-"+c.name, func() error {
 				cctx, cancel := context.WithTimeout(ctx, r.timeout)
 				defer cancel()
-				return c.Check(cctx)
+				return c.fn(cctx)
 			})
-			results <- outcome{name: c.Name(), err: err}
+			results <- outcome{name: c.name, err: err}
 		}(c)
 	}
 
@@ -215,7 +200,7 @@ func (r *Registry) check(ctx context.Context) Report {
 	// 残留 goroutine 之后往带缓冲的 channel 里写，不会泄漏。
 	pending := make(map[string]struct{}, len(checkers))
 	for _, c := range checkers {
-		pending[c.Name()] = struct{}{}
+		pending[c.name] = struct{}{}
 	}
 
 	for i := 0; i < len(checkers); i++ {

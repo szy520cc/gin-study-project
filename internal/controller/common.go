@@ -1,4 +1,12 @@
-package handler
+// Package controller 是 HTTP 层：绑参、校验、调 service、写响应。
+//
+// 全部是包级函数，没有 XxxHandler struct、没有构造函数 ——
+// 依赖（DB / JWT）由 service 和 resource 自己取，controller 不持有任何状态。
+// 路由集中在 internal/router/router.go 注册。
+//
+// 文件划分：本文件放本层公共能力（参数绑定、路径参数、校验错误翻译），
+// system.go 放系统端点（探针、404/405），其余每个业务模块一个文件。
+package controller
 
 import (
 	"encoding/json"
@@ -36,9 +44,19 @@ func InitValidator() {
 	})
 }
 
-// bindJSON 绑定并校验 JSON 请求体。返回 false 时响应已写出，handler 直接 return。
+// pathID 解析路径中的 uint64 参数。返回 false 时响应已写出，调用方直接 return。
+func pathID(c *gin.Context, name string) (uint64, bool) {
+	id, err := strconv.ParseUint(c.Param(name), 10, 64)
+	if err != nil || id == 0 {
+		response.Error(c, errcode.ErrInvalidParams.WithDetails("%s 必须为正整数", name))
+		return 0, false
+	}
+	return id, true
+}
+
+// bindJSON 绑定并校验 JSON 请求体。返回 false 时响应已写出，调用方直接 return。
 //
-// 收敛三件此前散落在每个 handler 里的事：
+// 收敛三件此前散落在每个接口函数里的事：
 //  1. 重复的 ShouldBindJSON + ErrInvalidParams 样板；
 //  2. 请求体超限识别 —— MaxBytesReader 触发时应返回 413 而不是 400；
 //  3. 校验失败的错误信息翻译 —— 原来把 go-playground 的英文原串直接吐给客户端，
@@ -60,6 +78,7 @@ func bindQuery[T any](c *gin.Context, req *T) bool {
 	return true
 }
 
+// bindError 把绑定/校验错误翻译成对客户端可读、且不泄露实现细节的业务错误
 func bindError(err error) error {
 	var maxBytesErr *http.MaxBytesError
 	if errors.As(err, &maxBytesErr) {

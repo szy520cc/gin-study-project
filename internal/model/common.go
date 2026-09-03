@@ -22,7 +22,15 @@ type PageRequest struct {
 
 // Normalize 归一化分页参数，返回实际生效的值（用于响应回显）
 func (p PageRequest) Normalize() (int, int) {
-	page, pageSize := p.Page, p.PageSize
+	return NormalizePage(p.Page, p.PageSize)
+}
+
+// NormalizePage 归一化分页参数。
+//
+// 这是全项目唯一一份归一化逻辑：controller 用它回显实际生效的分页，
+// service 用它兜底（绕过 HTTP 层直接调 service 时 binding 那道校验不生效）。
+// 两处各写一份的话，改了上限只改一边就会出现「回显 100 实际查 1000」这种错位。
+func NormalizePage(page, pageSize int) (int, int) {
 	if page < 1 {
 		page = DefaultPage
 	}

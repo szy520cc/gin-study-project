@@ -11,11 +11,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// NoOp 空操作中间件。用于「功能关闭时」占位，避免调用方到处写分支判断。
-func NoOp() gin.HandlerFunc {
-	return func(c *gin.Context) { c.Next() }
-}
-
 // RateLimit 按客户端 IP 的令牌桶限流（单机维度）。
 //
 // scope 用于区分不同配额（global / auth），只作为指标标签，不影响算法。

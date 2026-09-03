@@ -62,7 +62,7 @@ func LoggerWithConfig(cfg LoggerConfig) gin.HandlerFunc {
 		// 原实现无条件缓冲整个响应，大响应会双倍占用内存，且破坏流式输出。
 		if cfg.LogBody {
 			if c.Request.Body != nil {
-				// 只截断「记进日志的那一份」，Body 本身必须完整交给 handler：
+				// 只截断「记进日志的那一份」，Body 本身必须完整交给 controller：
 				// 直接用截断副本替换 Body 会让超过上限的合法 JSON 变成 unexpected EOF。
 				// 外层 BodyLimit 已用 MaxBytesReader 包过 Body，下面的 joinedBody
 				// 必须保留对它的引用，超限保护才不会在读走头部之后失效。

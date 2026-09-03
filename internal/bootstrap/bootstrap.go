@@ -1,42 +1,42 @@
-// Package bootstrap 集中所有进程级依赖的初始化与释放。
+// Package bootstrap 集中所有进程级依赖的初始化、启动与释放。
 //
-// 借鉴 agent-proxy 的 bootstrap.MustInit：main 不该知道「有几个组件、按什么顺序起」，
-// 它只需要「初始化 -> 启动 -> 等退出」三步。装配细节全部收敛到本包，
-// 于是 main.go 读起来就是一张流程图，新增一个依赖也只改这里一处。
-//
-// 与 agent-proxy 的区别：它把依赖赋给 library/resource 的全局变量，
-// 业务层直接 import 取用；这里仍保留 App 结构体与构造注入 ——
-// 全局变量会让 service/repository 失去 mock 点，测试只能连真实 DB。
-// 「基础设施集中初始化」与「业务层构造注入」这两件事并不冲突。
+// main 不该知道「有几个组件、按什么顺序起」，它只需要「初始化 → 启动 → 等退出」。
+// 装配细节全部收敛在这里：连 DB、连 Redis、签发器、探针注册、HTTP Server，
+// 以及启动两个端口、收信号、摘流、优雅关闭。
+// 建好之后统一交给 internal/resource 持有，业务层直接取用。
 package bootstrap
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"myproject/internal/config"
-	"myproject/internal/module"
+	"myproject/internal/resource"
 	"myproject/internal/router"
 	"myproject/pkg/admin"
 	"myproject/pkg/auth"
+	"myproject/pkg/buildinfo"
 	"myproject/pkg/cache"
 	"myproject/pkg/database"
 	"myproject/pkg/health"
 	"myproject/pkg/logger"
 	"myproject/pkg/metrics"
-	"myproject/pkg/transaction"
-
-	"net/http"
+	"myproject/pkg/safego"
 
 	"gorm.io/gorm"
 )
 
-// App 持有进程生命周期内的共享资源。
+// App 持有进程生命周期内需要显式关闭的资源。
 type App struct {
 	Cfg      *config.Config
 	DB       *gorm.DB
 	Redis    *cache.RedisClient
-	Health   *health.Registry
 	Srv      *http.Server
 	AdminSrv *http.Server
 }
@@ -44,18 +44,15 @@ type App struct {
 // Init 按依赖顺序装配组件。任一强依赖失败即返回错误，由 main 决定退出码。
 //
 // 失败路径也会释放已经建立的资源：中途失败时 app 被丢弃，
-// 调用方的 defer app.Close() 还没来得及注册，
-// 已连上的 MySQL/Redis 就没人关了（进程退出时靠 OS 兜底，
-// 但在测试或未来复用 Init 的场景里就是真泄漏）。
+// 调用方的 defer app.Close() 还没来得及注册，已连上的 MySQL/Redis 就没人关了。
 func Init(cfg *config.Config) (*App, error) {
-	app := &App{
-		Cfg: cfg,
-		// 探测结果缓存 2 秒：/readyz 无认证且会真打下游，
-		// 不缓存的话外部可以拿它当放大器持续压 DB/Redis。
-		Health: health.NewRegistry(2*time.Second, 2*time.Second),
-	}
+	app := &App{Cfg: cfg}
+
+	// 探测结果缓存 2 秒：/readyz 无认证且会真打下游，
+	// 不缓存的话外部可以拿它当放大器持续压 DB/Redis。
+	health.Init(2*time.Second, 2*time.Second)
 	// 探针里的下游原始错误只在非生产环境返回给调用方（/readyz 无认证）
-	app.Health.SetExposeErrors(!cfg.IsProd())
+	health.SetExposeErrors(!cfg.IsProd())
 
 	ok := false
 	defer func() {
@@ -64,31 +61,25 @@ func Init(cfg *config.Config) (*App, error) {
 		}
 	}()
 
-	// 1. JWT
-	jwtManager := auth.NewJWTManager(
-		cfg.JWT.Secret,
-		time.Duration(cfg.JWT.ExpireTime)*time.Hour,
-		cfg.JWT.Issuer,
-	)
-
-	// 2. 数据库（强依赖，失败即退出）
+	// 1. 数据库（强依赖，失败即退出）
 	if err := app.initDatabase(); err != nil {
 		return nil, err
 	}
 
-	// 3. Redis（可通过配置关闭；开启时连接失败即视为配置错误）
+	// 2. Redis（可通过配置关闭；开启时连接失败即视为配置错误）
 	if err := app.initRedis(); err != nil {
 		return nil, err
 	}
 
-	// 4. HTTP Server。
-	// 业务三层不在这里装配：每个模块在 internal/module 下自装配，
-	// bootstrap 只提供共享依赖（DB / 事务管理器 / JWT）。
-	engine, err := router.Setup(cfg, app.Health, module.Deps{
-		DB:  app.DB,
-		Tx:  transaction.NewManager(app.DB),
-		JWT: jwtManager,
-	}, module.All)
+	// 3. 资源交给全局单例，此后业务层可以用 resource.DB(ctx) / resource.JWT()
+	resource.Set(cfg, app.DB, app.Redis, auth.NewJWTManager(
+		cfg.JWT.Secret,
+		time.Duration(cfg.JWT.ExpireTime)*time.Hour,
+		cfg.JWT.Issuer,
+	))
+
+	// 4. HTTP Server
+	engine, err := router.Setup(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -143,7 +134,7 @@ func (app *App) initDatabase() error {
 		"host": cfg.Host, "db": cfg.DBName,
 	})
 
-	app.Health.RegisterFunc("database", func(ctx context.Context) error {
+	health.RegisterFunc("database", func(ctx context.Context) error {
 		sqlDB, err := db.DB()
 		if err != nil {
 			return err
@@ -178,8 +169,105 @@ func (app *App) initRedis() error {
 	}
 	app.Redis = redisClient
 	logger.Info("redis connected", map[string]interface{}{"host": cfg.Host})
-	app.Health.RegisterFunc("redis", redisClient.Ping)
+	health.RegisterFunc("redis", redisClient.Ping)
 	return nil
+}
+
+// ---------- 启动与退出 ----------
+
+// Run 启动业务与 admin 两个 server，等待退出信号，再摘流并优雅关闭。
+//
+// 「起几个 server、谁失败要退出、谁失败只告警」这类判断集中在这一个函数里，
+// main 不必感知。
+func (app *App) Run() error {
+	// NotifyContext 比手工 signal.Notify 更简洁，且能把取消信号传给下游。
+	// 收到信号后会显式调用 stop() 并改为监听「第二次信号」，
+	// 这里的 defer 只兜住从 srvErr 分支直接返回的路径。
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	srvErr := make(chan error, 1)
+	go func() {
+		logger.Info("server starting", map[string]interface{}{
+			"addr":    app.Cfg.Server.Addr,
+			"mode":    app.Cfg.Server.Mode,
+			"version": buildinfo.Version,
+			"go":      buildinfo.GoVersion(),
+		})
+		if err := app.Srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			srvErr <- err
+		}
+	}()
+
+	// admin 端口起不来不影响业务：只告警，不退出
+	if app.AdminSrv != nil {
+		safego.Go(context.Background(), "admin-server", func() {
+			logger.Info("admin server starting", map[string]interface{}{
+				"addr":  app.AdminSrv.Addr,
+				"pprof": app.Cfg.Admin.Pprof,
+			})
+			if err := app.AdminSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				logger.Error("admin server failed", map[string]interface{}{"error": err.Error()})
+			}
+		})
+	}
+
+	select {
+	case err := <-srvErr:
+		return fmt.Errorf("服务启动失败: %w", err)
+	case <-ctx.Done():
+		logger.Info("shutdown signal received")
+	}
+
+	// 恢复信号的默认行为，并单独监听第二次信号。
+	//
+	// NotifyContext 注册的处理器在 Run 返回前一直生效，drain + Shutdown
+	// 期间（生产配置合计可达 40 秒）第二个 SIGTERM 会被吞掉、默认行为也被抑制，
+	// 运维只剩 SIGKILL 可用。这里给出「再按一次立刻退出」的逃生口。
+	stop()
+	forced := make(chan os.Signal, 1)
+	signal.Notify(forced, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-forced
+		logger.Warn("second shutdown signal received, exiting immediately")
+		os.Exit(1)
+	}()
+
+	app.drain()
+
+	// 停止接收新连接，等待存量请求处理完
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), app.Cfg.Server.ShutdownTimeoutDuration())
+	defer cancel()
+
+	if err := admin.Shutdown(shutdownCtx, app.AdminSrv); err != nil {
+		logger.Warn("admin server shutdown failed", map[string]interface{}{"error": err.Error()})
+	}
+
+	if err := app.Srv.Shutdown(shutdownCtx); err != nil {
+		logger.Error("server forced to shutdown", map[string]interface{}{"error": err.Error()})
+		return err
+	}
+
+	logger.Info("server exited gracefully")
+	return nil
+}
+
+// drain 摘流：先让 /readyz 返回 503，等负载均衡把本实例从后端列表摘掉，
+// 再进入 Shutdown。
+//
+// 少了这一步，SIGTERM 之后 LB 仍会在下一次探测前继续转发流量，
+// 而此时服务已经拒绝新连接 —— 表现为发布期间的一小批 502。
+func (app *App) drain() {
+	delay := app.Cfg.Server.DrainDelayDuration()
+	if delay <= 0 {
+		return
+	}
+
+	health.StartDraining()
+	logger.Info("draining: readiness set to unhealthy", map[string]interface{}{
+		"delay": delay.String(),
+	})
+	time.Sleep(delay)
 }
 
 // Close 释放持有的资源。顺序与初始化相反。

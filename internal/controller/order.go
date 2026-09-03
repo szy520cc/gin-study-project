@@ -1,4 +1,4 @@
-package handler
+package controller
 
 import (
 	"myproject/internal/middleware"
@@ -9,16 +9,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// OrderHandler 订单处理器
-type OrderHandler struct {
-	orderService service.OrderService
-}
-
-// NewOrderHandler 创建订单处理器实例
-func NewOrderHandler(orderService service.OrderService) *OrderHandler {
-	return &OrderHandler{orderService: orderService}
-}
-
 // CreateOrder 创建订单
 // @Summary 创建订单
 // @Tags 订单
@@ -28,7 +18,7 @@ func NewOrderHandler(orderService service.OrderService) *OrderHandler {
 // @Param request body model.CreateOrderRequest true "订单信息"
 // @Success 200 {object} response.Response{data=model.OrderResponse}
 // @Router /api/v1/orders [post]
-func (h *OrderHandler) CreateOrder(c *gin.Context) {
+func CreateOrder(c *gin.Context) {
 	userID, ok := middleware.RequireUserID(c)
 	if !ok {
 		return
@@ -39,12 +29,11 @@ func (h *OrderHandler) CreateOrder(c *gin.Context) {
 		return
 	}
 
-	order, err := h.orderService.Create(c.Request.Context(), userID, &req)
+	order, err := service.CreateOrder(c.Request.Context(), userID, &req)
 	if err != nil {
 		response.Error(c, err)
 		return
 	}
-
 	response.Success(c, order)
 }
 
@@ -56,7 +45,7 @@ func (h *OrderHandler) CreateOrder(c *gin.Context) {
 // @Param id path int true "订单ID"
 // @Success 200 {object} response.Response{data=model.OrderResponse}
 // @Router /api/v1/orders/{id} [get]
-func (h *OrderHandler) GetOrder(c *gin.Context) {
+func GetOrder(c *gin.Context) {
 	userID, ok := middleware.RequireUserID(c)
 	if !ok {
 		return
@@ -67,13 +56,11 @@ func (h *OrderHandler) GetOrder(c *gin.Context) {
 		return
 	}
 
-	// 带归属校验：原实现任何登录用户都能查别人的订单
-	order, err := h.orderService.GetByIDForUser(c.Request.Context(), id, userID)
+	order, err := service.GetOrder(c.Request.Context(), id, userID)
 	if err != nil {
 		response.Error(c, err)
 		return
 	}
-
 	response.Success(c, order)
 }
 
@@ -87,7 +74,7 @@ func (h *OrderHandler) GetOrder(c *gin.Context) {
 // @Param request body model.UpdateOrderStatusRequest true "状态信息"
 // @Success 200 {object} response.Response
 // @Router /api/v1/orders/{id}/status [put]
-func (h *OrderHandler) UpdateOrderStatus(c *gin.Context) {
+func UpdateOrderStatus(c *gin.Context) {
 	userID, ok := middleware.RequireUserID(c)
 	if !ok {
 		return
@@ -103,11 +90,10 @@ func (h *OrderHandler) UpdateOrderStatus(c *gin.Context) {
 		return
 	}
 
-	if err := h.orderService.UpdateStatus(c.Request.Context(), id, userID, &req); err != nil {
+	if err := service.UpdateOrderStatus(c.Request.Context(), id, userID, &req); err != nil {
 		response.Error(c, err)
 		return
 	}
-
 	response.Success(c, nil)
 }
 
@@ -119,7 +105,7 @@ func (h *OrderHandler) UpdateOrderStatus(c *gin.Context) {
 // @Param id path int true "订单ID"
 // @Success 200 {object} response.Response
 // @Router /api/v1/orders/{id} [delete]
-func (h *OrderHandler) DeleteOrder(c *gin.Context) {
+func DeleteOrder(c *gin.Context) {
 	userID, ok := middleware.RequireUserID(c)
 	if !ok {
 		return
@@ -130,11 +116,10 @@ func (h *OrderHandler) DeleteOrder(c *gin.Context) {
 		return
 	}
 
-	if err := h.orderService.Delete(c.Request.Context(), id, userID); err != nil {
+	if err := service.DeleteOrder(c.Request.Context(), id, userID); err != nil {
 		response.Error(c, err)
 		return
 	}
-
 	response.Success(c, nil)
 }
 
@@ -148,7 +133,7 @@ func (h *OrderHandler) DeleteOrder(c *gin.Context) {
 // @Param status query int false "订单状态"
 // @Success 200 {object} response.Response{data=response.ListData}
 // @Router /api/v1/orders [get]
-func (h *OrderHandler) ListOrders(c *gin.Context) {
+func ListOrders(c *gin.Context) {
 	userID, ok := middleware.RequireUserID(c)
 	if !ok {
 		return
@@ -159,7 +144,7 @@ func (h *OrderHandler) ListOrders(c *gin.Context) {
 		return
 	}
 
-	orders, total, err := h.orderService.ListByUserID(c.Request.Context(), userID, &req)
+	orders, total, err := service.ListOrders(c.Request.Context(), userID, &req)
 	if err != nil {
 		response.Error(c, err)
 		return

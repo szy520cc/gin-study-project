@@ -8,7 +8,7 @@
   - [依赖方向](#依赖方向)
   - [每个目录的核心职责](#每个目录的核心职责)
   - [一个请求怎么流过这些目录](#一个请求怎么流过这些目录)
-  - [新增一个业务模块要改哪些目录](#新增一个业务模块要改哪些目录)
+  - [新增一个业务模块要改哪些文件](#新增一个业务模块要改哪些文件)
 - [技术栈](#技术栈)
 - [快速开始](#快速开始)
 - [配置说明](#配置说明)
@@ -18,6 +18,7 @@
 - [API 接口](#api-接口)
 - [数据模型](#数据模型)
 - [错误码](#错误码)
+- [测试](#测试)
 - [常用命令](#常用命令)
 - [License](#license)
 
@@ -51,40 +52,37 @@ myproject/
 │
 ├── internal/                       # 内部包（Go 编译器强制：外部项目无法引用）
 │   ├── config/                     # 配置结构、加载、环境变量绑定、启动校验
-│   │   └── config.go
+│   │   ├── config.go               # 结构体定义、默认值、加载与合并
+│   │   └── validate.go             # 启动校验（什么样的配置算合法）
 │   │
 │   ├── bootstrap/                  # 进程装配与生命周期（main 只调它）
-│   │   ├── bootstrap.go            # 按序初始化 DB/Redis/两个 server，产出共享依赖
-│   │   └── server.go               # 启停、摘流、优雅关闭
+│   │   └── bootstrap.go            # 初始化 DB/Redis/两个 server + 启停摘流优雅关闭
 │   │
-│   ├── module/                     # 业务模块装配与自注册（新增模块的唯一登记点）
-│   │   ├── module.go               # Deps 共享依赖 + Register 签名 + All 模块清单
-│   │   ├── user.go                 # user 模块：串起三层 + 声明自己的路由
-│   │   └── order.go                # order 模块：同上
+│   ├── resource/                   # 进程级共享资源（DB / JWT / Redis / Cfg）
+│   │   └── resource.go             # bootstrap 注入一次；DB(ctx) 自动认领事务
 │   │
-│   ├── handler/                    # HTTP 处理器层（Controller）
-│   │   ├── bind.go                 # 参数绑定泛型助手 + 校验错误中文化 + 413 识别
-│   │   ├── health.go               # 探针处理器（livez / readyz）
-│   │   ├── system.go               # 404 / 405 统一 JSON 响应
-│   │   ├── user.go                 # 用户相关接口处理器
-│   │   └── order.go                # 订单相关接口处理器
+│   ├── controller/                 # HTTP 层（全部包级函数，无 struct 无构造函数）
+│   │   ├── common.go               # 本层公共：参数绑定、pathID、校验错误中文化 + 413 识别
+│   │   ├── system.go               # 系统端点：探针 livez/readyz + 404/405
+│   │   ├── user.go                 # 用户相关接口
+│   │   └── order.go                # 订单相关接口
 │   │
-│   ├── service/                    # 业务逻辑层
-│   │   ├── service.go              # 分页归一化等本层公共约束
-│   │   ├── user.go                 # 用户业务逻辑（注册、登录、CRUD）
-│   │   └── order.go                # 订单业务逻辑（创建、状态流转、归属校验）
+│   ├── service/                    # 业务逻辑（包级函数，不写 SQL）
+│   │   ├── user.go                 # 用户业务（注册、登录、资料、列表）
+│   │   └── order.go                # 订单业务（创建、状态流转+流水、归属校验）
 │   │
-│   ├── repository/                 # 数据访问层（DAO）
-│   │   ├── repository.go           # 事务感知基类 + 领域错误转换
-│   │   ├── user.go                 # 用户数据访问实现
-│   │   └── order.go                # 订单数据访问实现
+│   ├── data/                       # 数据访问层（包级函数，唯一写 SQL 的地方）
+│   │   ├── common.go               # connDb(ctx) 事务感知连接 + IsNotFound/IsDuplicate
+│   │   ├── user.go                 # 用户表读写
+│   │   └── order.go                # 订单表与流水表读写
 │   │
 │   ├── model/                      # 数据模型定义
-│   │   ├── common.go               # 通用分页请求
+│   │   ├── common.go               # 分页请求 + 全项目唯一的分页归一化 NormalizePage
 │   │   ├── user.go                 # 用户模型、请求/响应结构体
 │   │   └── order.go                # 订单模型、请求/响应结构体
 │   │
 │   ├── middleware/                 # HTTP 中间件
+│   │   ├── common.go               # 本层公共：NoOp 占位中间件
 │   │   ├── requestid.go            # 请求 ID 生成/透传，绑定 ctx logger
 │   │   ├── recovery.go             # panic 恢复（结构化日志 + 堆栈 + 指标）
 │   │   ├── metrics.go              # RED 指标采集（route 标签用路由模板）
@@ -97,7 +95,7 @@ myproject/
 │   │   └── timeout.go              # 单请求 ctx 超时
 │   │
 │   └── router/                     # 路由配置
-│       └── router.go               # 引擎构建、可信代理、中间件装配、系统路由 + 遍历模块清单
+│       └── router.go               # 引擎设置 + 中间件顺序 + 全部路由表
 │
 ├── pkg/                            # 与业务无关的基础设施，不依赖 internal/
 │   ├── auth/                       # 认证原语
@@ -105,13 +103,17 @@ myproject/
 │   │   └── password.go             # 密码哈希与校验（bcrypt）
 │   ├── database/mysql.go           # MySQL 连接池 + GORM 日志接入
 │   ├── cache/redis.go              # Redis 客户端封装
-│   ├── logger/logger.go            # 基于 log/slog 的日志，ctx 贯穿 + 保留策略
+│   ├── logger/                     # 基于 log/slog 的日志
+│   │   ├── logger.go               # slog 初始化、级别、ctx 贯穿
+│   │   └── rotate.go               # 按小时轮转的文件写入器 + 保留策略
 │   ├── response/response.go        # 统一响应封装
 │   ├── errcode/errcode.go          # 错误码体系（支持 Unwrap/Is）
-│   ├── health/health.go            # 依赖健康检查注册表（结果缓存 + 摘流状态）
+│   ├── health/                     # 依赖健康检查
+│   │   ├── health.go               # Registry：注册、探测、结果缓存、摘流状态
+│   │   └── std.go                  # 包级默认注册表（RegisterFunc / Check 直接调用）
 │   ├── metrics/metrics.go          # Prometheus 指标定义 + DB 连接池采集
 │   ├── admin/admin.go              # 内部端口：/metrics、/debug/pprof、/version
-│   ├── transaction/transaction.go  # 跨 repository 事务管理器
+│   ├── transaction/transaction.go  # 事务边界：Do(ctx, fn)，句柄放 ctx，支持嵌套
 │   ├── safego/safego.go            # 带 panic 保护的 goroutine 启动方式
 │   └── buildinfo/buildinfo.go      # 编译期注入的版本信息
 │
@@ -122,12 +124,15 @@ myproject/
 ├── docs/swagger/                   # Swagger API 文档（make swagger 生成）
 ├── logs/                           # 日志目录，按小时轮转 app_YYYYMMDDHH.log
 │
-├── test/                           # 测试
-│   ├── user_service_test.go        # service 层单测（手写 mock）
-│   ├── http_test.go                # 路由/中间件端到端测试
-│   ├── hardening_test.go           # 405 / 413 / 限流 / 超时映射 / 探针缓存
-│   └── observability_test.go       # 指标标签基数 / 安全头 / 摘流 / admin 端点
+├── test/                           # 真库集成测试
+│   ├── setup_test.go               # TestMain：加载配置 / AutoMigrate / resource.Set / 建 engine
+│   ├── user_api_test.go            # 用户接口：注册登录、越权、分页、脱敏
+│   ├── order_api_test.go           # 订单接口：状态流转与流水、归属隔离
+│   ├── framework_test.go           # 框架层（免 DB）：405/413/限流/探针/panic/指标基数/安全头
+│   ├── layering_test.go            # 分层边界（免 DB）：扫 import 表，service 不许 import gorm
+│   └── tx_test.go                  # 事务：提交、回滚、嵌套、句柄失效
 │                                   # 另有 internal/config/config_test.go、pkg/logger/rotate_test.go
+│                                   #      pkg/transaction/transaction_test.go、internal/middleware/logger_test.go
 │
 ├── .github/workflows/ci.yml        # CI：fmt / vet / race test / lint / govulncheck / docker
 ├── .golangci.yml                   # 静态检查配置
@@ -149,19 +154,18 @@ myproject/
 cmd/  ──▶  internal/bootstrap  ──▶  internal/router ──▶ internal/middleware
                   │                        │
                   │                        ▼
-                  │                internal/module      按模块装配三层 + 声明路由
+                  │                internal/controller  HTTP 边界：绑定、校验、写响应
                   │                        │
                   │                        ▼
-                  │                internal/handler     HTTP 边界：绑定、校验、写响应
+                  │                internal/service     业务规则、事务边界、错误映射
                   │                        │
                   │                        ▼
-                  │                internal/service     业务规则、事务边界
-                  │                        │
-                  │                        ▼
-                  │                internal/repository  SQL / ORM 边界
+                  │                internal/data        唯一允许写 SQL 的地方
                   │                        │
                   │                        ▼
                   │                internal/model       结构体，谁都能依赖
+                  │
+                  ├──▶ internal/resource   进程级资源，data/controller/middleware 读
                   ▼
              pkg/*   基础设施，不依赖 internal/ 任何东西
 ```
@@ -169,7 +173,9 @@ cmd/  ──▶  internal/bootstrap  ──▶  internal/router ──▶ intern
 两条能自检的规则：
 
 - `pkg/` 里如果出现 `import "myproject/internal/..."`，就是写错了。基础设施一旦反向依赖业务配置，它就没法被单独复用，`config` 字段改名也会波及到它。所以 `database.NewMySQL` 收的是自己的 `Options`，由 `bootstrap` 负责把 `config` 翻译过去。
-- 下层不认识上层。`repository` 不知道 HTTP 存在（它返回 `ErrNotFound`，而不是 404）；`service` 不接触 `*gin.Context`；`handler` 不写 SQL。出现跨层调用（比如 handler 直接调 repository）就说明分层破了。
+- 下层不认识上层。`service` 不接触 `*gin.Context`、不知道 HTTP 状态码（它返回 `errcode` 里的业务错误，由 `pkg/response` 决定映射成几号）、也不写 SQL；`controller` 不碰数据库、不做业务判断；`data` 不认识 `errcode` 与 gin。
+
+这三条边界不靠人守 —— `test/layering_test.go` 直接扫 import 表，`service` import 了 gorm、`controller` import 了 `internal/data`、`data` import 了 `errcode`，测试就红。
 
 ### 每个目录的核心职责
 
@@ -179,8 +185,11 @@ cmd/  ──▶  internal/bootstrap  ──▶  internal/router ──▶ intern
 
 **`internal/bootstrap/`** — 进程的装配车间与生命周期管理者，是理解这个框架最该先读的目录。
 
-- `bootstrap.go`：`Init(cfg)` 按依赖顺序创建组件 —— JWT → 数据库（强依赖，失败即退出）→ Redis（可配置关闭）→ repository → service → handler → HTTP Server → admin Server；同时把 DB/Redis 注册进健康检查、把连接池指标注册进 Prometheus。`Close()` 逆序释放。
-- `server.go`：`Run()` 并发启动业务端口与 admin 端口（admin 起不来只告警不退出），等 SIGINT/SIGTERM，先 `drain()` 摘流再 `Shutdown()`。
+整个包只有一个 `bootstrap.go`，按进程生命周期顺序读下来就是全部：
+
+- `Init(cfg)` 按依赖顺序创建组件 —— 数据库（强依赖，失败即退出）→ Redis（可配置关闭）→ 交给 `internal/resource` → HTTP Server → admin Server；同时把 DB/Redis 注册进健康检查、把连接池指标注册进 Prometheus。中途失败会释放已建立的资源（此时调用方的 `defer app.Close()` 还没注册）。业务各层不在这里装配，因为已经没有需要装配的东西了。
+- `Run()` 并发启动业务端口与 admin 端口（admin 起不来只告警不退出），等 SIGINT/SIGTERM，先 `drain()` 摘流再 `Shutdown()`；关闭期间单独监听第二次信号，给运维留「再按一次立刻退出」的逃生口。
+- `Close()` 逆序释放资源。
 
 把这些从 main 里搬出来的好处是：**新增一个依赖只改这一个文件，main 永远不变**。
 
@@ -190,19 +199,47 @@ cmd/  ──▶  internal/bootstrap  ──▶  internal/router ──▶ intern
 
 两条与安全相关的加载规则：`-env` 取值被白名单限定为 `dev/test/prod`（拼错直接启动失败，而不是静默按默认值跑）；`config.local.yaml` **只在非生产环境加载** —— 它优先级高于环境配置，一旦随 `configs/` 目录同步到生产机会静默替换生产的库地址与 JWT secret。`config.prod.yaml` 在 `-env=prod` 时必须存在。
 
-**`internal/config/`** — 配置的 Go 侧：结构体定义、加载合并、环境变量绑定、以及**启动即校验**。校验会在启动时直接拒绝「JWT secret 用了占位符」「生产环境 secret 短于 32 字节」「CORS 通配符 + allow_credentials」这类问题，而不是等到线上才暴露。放在 `internal/` 是因为配置结构是应用私有的，外部 module 没有理由引用它。
+**`internal/config/`** — 配置的 Go 侧，两个文件各管一件事：`config.go` 是结构体定义、默认值、加载合并与环境变量绑定；`validate.go` 是**启动即校验**，会在启动时直接拒绝「JWT secret 用了占位符」「生产环境 secret 短于 32 字节」「CORS 通配符 + allow_credentials」这类问题，而不是等到线上才暴露。拆开是因为「配置怎么加载」和「什么样的配置算合法」是两件独立的事，排查时也总是只看其中一件。放在 `internal/` 是因为配置结构是应用私有的，外部 module 没有理由引用它。
 
 #### HTTP 边界
 
-**`internal/router/`** — 决定「请求进来先经过什么」。构建 gin 引擎、设置可信代理、按固定顺序装配中间件（顺序有讲究，见下文）、注册系统探针路由，最后遍历 `module.All` 让每个业务模块自己挂路由。**本文件不出现任何业务路径，新增模块不改这里**。
+**`internal/router/`** — 决定「请求进来先经过什么」，以及「有哪些路由」。只有一个 `router.go`，分两段读。
 
-**`internal/module/`** — 「一个业务模块长什么样」的唯一答案。每个模块一个文件，在文件里自己把 repository → service → handler 串起来，并声明自己的路由；`module.go` 里的 `Deps` 是共享依赖（DB、事务管理器、JWT、认证/限流中间件），`All` 是模块清单。
+前半段是**服务的形状**，`Setup` 读下来就是启动顺序：
 
-这一层是为了消掉重复登记而存在的：原来新增一个模块要在 `repository.New` / `service.New` / `handler.New` / `routes.go` 四个聚合器里各登记一遍，外加 `router.go` 调一次，共 5 处纯机械改动。现在只需在 `All` 里加一行。代价是多了一个包（总代码量基本没变），换来「读一个文件就知道这个模块怎么装、有哪些路由」。
+```go
+useBaseMiddleware(r, cfg)      // RequestID → Metrics → BodyLimit → Logger → Recovery → 安全头 → CORS
+registerSystemRoutes(r)        // 探针必须夹在这里：gin 的 Use 只作用于之后注册的路由
+useThrottleMiddleware(r, cfg)  // 限流 + 超时
+registerAPIRoutes(r, cfg)      // /api/v1 业务路由
+registerFallbackRoutes(r)      // 404 / 405
+```
 
-`All` 刻意是**手写清单**，不用 `init` 自注册。自注册并不省事——同样是每个模块写一行，只是从 `module.go` 搬到模块文件里——但会丢掉「一眼看出系统装了哪些模块」和「注释掉一行就关掉某个模块」这两点灵活性。`init` 自注册是给跨包插件（`database/sql` 驱动那种）解耦用的，这里所有模块同包，本来没有解耦需求。`module_test.go` 守着这张清单：漏登记、路径写错、模块间路径冲突都会在那里暴露。
+再往下是 `// ---------- 路由表 ----------`，**全部路由集中在这里**：
 
-每个模块导出两个函数：`Xxx(g, d)` 从 `Deps` 自装配（线上用），`XxxWith(g, d, svc)` 接受注入的 service（测试用 stub 起完整 HTTP 栈，不连数据库，且路由表与线上完全一致）。
+```go
+v1 := r.Group("/api/v1")
+registerUser(v1, auth, authLimit)
+registerOrder(v1, auth)
+```
+
+**新增接口就在对应的 `registerXxx` 里加一行**，新增模块就加一个 `registerXxx` 函数并在 `registerAPIRoutes` 里调一次 —— `Setup` 一行都不用动。路由集中在一处的好处是「这个服务对外提供什么」有唯一答案，不需要翻 N 个模块文件去拼。
+
+**`internal/resource/`** — 进程级共享资源的持有者，这是本框架「装配」的全部内容。
+
+```go
+// bootstrap 启动时注入一次
+resource.Set(cfg, db, redisClient, jwtManager)
+
+// data 层取连接（其他层不该调 DB）
+db := resource.DB(ctx)   // ctx 里有事务句柄就复用事务，否则用默认连接
+// controller 取 JWT 管理器
+jwt := resource.JWT()
+```
+
+为什么用全局单例而不是层层注入：DB、JWT 这些东西进程内只有一份、生命周期与进程等长，「初始化一次 + 全局读取」是最直接的表达。原来为了能替换实现，每加一个模块要写 data 接口 + 实现 + 构造函数、service 接口 + 实现 + 构造函数，再在 module 包里把它们串起来 —— 五六十行没有一行业务逻辑。现在这些全部消失，分层还在（`internal/data` 仍是唯一写 SQL 的地方），只是层与层之间用包级函数调用而不是接口 + 注入。
+
+代价写在明面上：**业务层不能再用 mock 替换数据库**，所以测试改走真库集成测试（见「测试」一节）。这是个取舍，不是免费的。
 
 **`internal/middleware/`** — 横切关注点，每个文件一个独立能力，装配顺序即执行顺序：
 
@@ -211,7 +248,7 @@ cmd/  ──▶  internal/bootstrap  ──▶  internal/router ──▶ intern
 | `requestid.go` | 生成/透传 X-Request-ID，绑进 ctx logger | 最先，后续所有日志都要带它 |
 | `metrics.go` | RED 指标采集（收尾在 defer 里） | 放在限流**之前**，被拒的请求也要计入 QPS；用 defer 才能让 panic 请求也计数、in_flight 能归零 |
 | `bodylimit.go` | 请求体上限，超限 413 | 必须早于任何读 Body 的中间件，否则 MaxBytesReader 包不到真实 Body |
-| `logger.go` | 访问日志，query 与 body 都脱敏，按需记 body | 记日志的那份 body 会截断，但交给 handler 的 Body 始终完整；收尾在 defer 里，panic 请求也留日志 |
+| `logger.go` | 访问日志，query 与 body 都脱敏，按需记 body | 记日志的那份 body 会截断，但交给 controller 的 Body 始终完整；收尾在 defer 里，panic 请求也留日志 |
 | `recovery.go` | panic 恢复 + 堆栈 + 指标 | 在 Metrics/Logger 的**内层**：先写好 500，外层才能观测到真实状态码（放外层会记成 200）|
 | `secure.go` | nosniff / DENY / CSP / HSTS 响应头 | —— |
 | `cors.go` | 跨域，白名单来自配置 | —— |
@@ -220,31 +257,52 @@ cmd/  ──▶  internal/bootstrap  ──▶  internal/router ──▶ intern
 
 `auth.go` 不在全局链上，它是按路由组挂的：`Auth()` 校验 JWT，`SelfOnly()` 做资源归属校验（防止任何登录用户删除任意账号）。
 
-**`internal/handler/`** — HTTP 与业务的翻译层。职责被刻意限制在四件事：绑参、校验、调 service、写响应。**不写业务规则，不碰数据库**。
+**`internal/controller/`** — HTTP 与业务的翻译层。职责被刻意限制在四件事：绑参、校验、调 service、写响应。**不写业务规则，不碰数据库**。
 
-- `bind.go`：泛型 `bindJSON[T]` / `bindQuery[T]`，把「重复的 ShouldBind 样板 + 校验错误中文化 + 413 识别」收敛成一处。校验失败返回的字段名用 json tag（对齐 API 契约），不会泄露内部结构体名。`InitValidator()` 由 `router.Setup` 调一次
-- `health.go`：`/livez`（只看进程活着）与 `/readyz`（真探下游，不健康返 503）
-- `system.go`：404 / 405 统一成 JSON，而不是 gin 默认的纯文本
-- `user.go` / `order.go`：业务接口
+- `common.go`：本层公共能力集中在这一个文件 —— 泛型 `bindJSON[T]` / `bindQuery[T]`（把「重复的 ShouldBind 样板 + 校验错误中文化 + 413 识别」收敛成一处，校验失败返回的字段名用 json tag，不泄露内部结构体名）、`pathID` 路径参数解析、`InitValidator()`（由 `router.Setup` 调一次）
+- `system.go`：系统端点 —— `/livez`（只看进程活着）、`/readyz`（真探下游，不健康返 503）、404 / 405 统一成 JSON 而不是 gin 默认的纯文本。它们不属于任何业务模块也不经过 service，所以单独一个文件
+- `user.go` / `order.go`：业务接口，每个模块一个文件
 
 #### 业务核心
 
-**`internal/service/`** — 业务规则所在地，也是**事务边界的划定者**。它拿到的是纯 Go 类型，看不到 `*gin.Context`，所以可以脱离 HTTP 单独测试。
+**`internal/service/`** — 业务规则、事务边界、错误映射，全部是**包级函数**。
 
-- `service.go`：本层公共约束 —— 分页参数归一化（`maxPageSize=100`，防止 `pageSize=999999` 打穿数据库）
-- `user.go`：注册（查重 → bcrypt → 落库）、登录（校验 → 签发 token）、资料更新
-- `order.go`：创建、状态流转校验、归属校验
+```go
+// 没有 interface、没有 struct、没有构造函数，controller 直接调
+func CreateOrder(ctx context.Context, userID uint64, req *model.CreateOrderRequest) (*model.OrderResponse, error) {
+    ...
+    err := data.CreateOrder(ctx, order)          // 不碰 gorm
+    if data.IsDuplicate(err) { ... }             // 数据层错误 → 业务错误
+}
+```
 
-需要「同时写两张表且要么都成功」时，用注入进来的 `transaction.Manager.Do(ctx, fn)` 包住，repository 会通过 ctx 自动感知事务，业务代码无需接触 `*gorm.DB`。
+- `user.go`：用户业务（注册、登录、资料更新、列表）
+- `order.go`：创建重试、状态流转校验 + 流水、归属校验、删除限制
 
-**`internal/repository/`** — ORM 的边界。向上只暴露领域错误，**让 `service` 不必 import gorm**，将来换 ORM 不影响业务代码。
+**`internal/data/`** — 数据访问层，也全部是包级函数。这是**唯一允许出现 SQL 与 gorm 调用的地方**。
 
-- `repository.go`：`base.conn(ctx)`（ctx 里有事务句柄就复用，否则用默认连接）+ `wrapErr`（把 `gorm.ErrRecordNotFound` 翻成 `ErrNotFound`、唯一键冲突翻成 `ErrConflict`）
-- `user.go` / `order.go`：接口定义 + 实现。注意几处刻意的写法：用 `ExistsByUsername` 走 count 而不是把整行捞出来；`Update` 用 `Select` 白名单而不是 `Save` 全字段覆盖（避免并发丢更新）
+```go
+// 需要连接就调 connDb(ctx) —— 事务中自动复用事务句柄，
+// 所以同一个函数在事务内外都能用，不需要写第二套 XxxWithTx
+func UpdateOrderStatus(ctx context.Context, id uint64, from, to int8) (int64, error) {
+    res := connDb(ctx).Model(&model.Order{}).
+        Where("id = ? AND status = ?", id, from).
+        Update("status", to)
+    return res.RowsAffected, res.Error
+}
+```
+
+三条约定写在包注释里：没有 interface 与构造函数；不认识业务错误（只返回 gorm 原始错误，service 用 `data.IsNotFound` / `data.IsDuplicate` 判定后翻译成 `errcode`）；不做业务判断（归属校验、状态流转、分页上限都属于 service）。
+
+**为什么不用「每张表一个 interface + 实现 + 构造函数」的传统 Repository**：那套样板的收益是换实现和 mock 注入，本项目两者都不需要（测试走真库）。包级函数保住了「复杂 SQL 有地方放、业务层看不见 ORM」这两个真收益，去掉了接口声明与装配。将来真要拆多数据源，再给具体函数加分支就行。
+
+需要「同时写两张表且要么都成功」时在 service 用 `transaction.Do(ctx, fn)` 包住，`data` 层的 `connDb(ctx)` 会自动认领 ctx 里的事务句柄，所以事务内外的 data 函数写法完全一样。
 
 **`internal/model/`** — 结构体定义，无行为逻辑。每个模型文件包含三类：数据库实体（`User`）、请求体（`UserRegisterRequest`，带 validator tag）、响应体（`UserResponse`，通过 `ToResponse()` 转换）。**请求/响应与实体分离**是为了不把 `password` 这类字段意外序列化给客户端。
 
 响应体还按「谁在看」分了两个：`UserResponse` 含 email/phone/status，只用于本人视角（`/users/profile`）；`UserPublicResponse` 只有 id/username/avatar/created_at，用于列表和查他人 —— 那两个接口只校验登录，用同一个响应体等于让任何注册用户批量导出全库 PII。
+
+`common.go` 除了 `PageRequest` 还放着 `NormalizePage` —— **全项目唯一一份分页归一化逻辑**。controller 用它回显实际生效的分页，service 用它兜底（绕过 HTTP 层直接调 service 时 binding 的 `max=100` 不生效）。此前 controller 侧和 service 侧各写了一份，改上限只改一边就会出现「回显 100 实际查 1000」这种错位。
 
 #### 基础设施 `pkg/`
 
@@ -261,13 +319,13 @@ cmd/  ──▶  internal/bootstrap  ──▶  internal/router ──▶ intern
 | `health/` | 依赖健康检查注册表 | 探测结果缓存 2 秒（`/readyz` 无认证，不缓存会被当放大器压 DB）；带摘流状态；一批探测有整体超时且同一时刻只跑一批（不理 ctx 的 checker 挂死时不会持续堆 goroutine）|
 | `metrics/` | Prometheus 指标 | route 标签用**路由模板**而不是真实路径，避免标签基数爆炸；采集 DB 连接池等待数 |
 | `admin/` | 内部管理端口 | `/metrics`、`/debug/pprof`、`/version` 挂在**独立端口且默认只监听回环** —— 这些端点会暴露路由清单与堆信息，不该挂业务端口 |
-| `transaction/` | 跨 repository 事务 | 事务句柄放 ctx，支持嵌套复用（SavePoint 语义）；写入口不导出（外部无法用普通 `*gorm.DB` 冒充事务），句柄在 `Do` 返回后失效 |
+| `transaction/` | 事务边界 | 事务句柄放 ctx，`data` 层的 `connDb(ctx)` 自动认领；支持嵌套复用（SavePoint 语义）；写入口不导出（外部无法用普通 `*gorm.DB` 冒充事务），句柄在 `Do` 返回后失效 |
 | `safego/` | 带 panic 保护的 goroutine | 裸 `go func()` 里的 panic 无法被中间件 recover，会直接崩进程 |
 | `buildinfo/` | 编译期注入的版本信息 | 由 Makefile 通过 `-ldflags` 写入 |
 
 #### 辅助目录
 
-- **`test/`** — 跨层测试：`http_test.go` 走完整路由链，`hardening_test.go` 覆盖 405/413/限流/超时映射/探针缓存，`observability_test.go` 覆盖指标基数/安全头/摘流/admin 端点。单包内的测试放在各自包里（`internal/config/config_test.go`、`pkg/logger/rotate_test.go`）。
+- **`test/`** — 真库集成测试：`setup_test.go` 在 `TestMain` 里连库、AutoMigrate、`resource.Set` 并建好 engine，`user_api_test.go` / `order_api_test.go` / `tx_test.go` 走完整链路打真实数据库，`framework_test.go` 与 `layering_test.go` 不依赖 DB（前者验框架行为，后者扫 import 表守分层边界）。连不上库时 DB 相关用例会显式 skip 并打印如何起库。单包内的测试放在各自包里（`internal/config/config_test.go`、`pkg/transaction/transaction_test.go` 等）。
 - **`docs/swagger/`** — `make swagger` 生成的 API 文档产物。
 - **`scripts/`** — `build.sh` / `deploy.sh`。
 - **`logs/`** — 运行期日志输出，内容已 gitignore，只保留 `.gitkeep`。
@@ -282,32 +340,31 @@ cmd/  ──▶  internal/bootstrap  ──▶  internal/router ──▶ intern
                               → recovery → secure → cors → ratelimit → timeout
                               （探针路由注册在 ratelimit 之前，不受限流与超时约束）
 3. internal/middleware/auth.go Auth() 解析 Bearer token，把 userID 放进 ctx
-4. internal/module/order.go    路由在这里声明，匹配到 h.CreateOrder
-5. internal/handler/order.go   bindJSON 绑定 + validator 校验，失败直接 400/413 返回
-6. internal/service/order.go   业务规则校验；需要原子性时 transaction.Do 包住
-7. internal/repository/order.go 执行 SQL，gorm 错误经 wrapErr 转成 ErrNotFound/ErrConflict
+4. internal/router/router.go   registerOrder 里声明的路由，匹配到 controller.CreateOrder
+5. internal/controller/order.go RequireUserID 取身份 + bindJSON 绑定校验，失败直接 400/401/413
+6. internal/service/order.go   业务规则校验；多次写入用 transaction.Do 包住
+7. internal/data/order.go      执行 SQL；connDb(ctx) 复用事务句柄
 8. internal/model/order.go     实体 → ToResponse() 转成响应体（不含内部字段）
 9. pkg/response                统一包装成 {code, message, data}；错误经 errcode 映射 HTTP 状态码
 ```
 
 排查问题时，用 `X-Request-ID` 在日志里就能串起第 2 步到第 9 步的全部记录。
 
-### 新增一个业务模块要改哪些目录
+### 新增一个业务模块要改哪些文件
 
-以加一个 `product` 模块为例，按顺序：
+以加一个 `product` 模块为例：
 
-1. `internal/model/product.go` — 实体 + 请求/响应结构体
-2. `internal/repository/product.go` — 接口 + 实现 + `NewProduct(db)`
-3. `internal/service/product.go` — 接口 + 实现 + `NewProductService(repo, tx)`
-4. `internal/handler/product.go` — 接口处理器 + `NewProductHandler(svc)`
-5. `internal/module/product.go` — 把上面三层串起来，并声明本模块的路由
-6. `internal/module/module.go` — 在 `All` 里加一行 `Product,`（**唯一的登记点**）
-7. `cmd/migrate/main.go` — 把 `&model.Product{}` 加进 `models` 列表
-8. `pkg/errcode/errcode.go` — 如需新错误码，按 `50001+` 段位追加
+1. `internal/model/product.go` — 实体 + `TableName()` + 请求/响应结构体 + `ToResponse()`
+2. `internal/data/product.go` — 数据访问函数（包级函数，`connDb(ctx)` 取连接写 SQL）
+3. `internal/service/product.go` — 业务函数（包级函数，调 `data.Xxx`，把 gorm 错误翻成 `errcode`）
+4. `internal/controller/product.go` — 接口函数（包级函数，绑参 → 调 service → 写响应）
+5. `internal/router/router.go` — 加一个 `registerProduct(g, auth)` 并在 `registerAPIRoutes` 里调一次
+6. `cmd/migrate/main.go` — 把 `&model.Product{}` 加进 `models` 列表
+7. `pkg/errcode/errcode.go` — 如需新错误码，按段位追加
 
-前 6 步是固定套路，第 7、8 步按需。全程不需要动 `cmd/server/main.go`、`internal/bootstrap/`、`internal/router/`。
+**4 个新文件 + 2 处登记点**（路由、迁移清单），全程不需要动 `cmd/server/main.go`、`internal/bootstrap/`、`internal/resource/`。
 
-三层的聚合 struct 已经取消（`repository.go` / `service.go` 只剩本层公共约束），需要维护的模块清单只有 `module.All` 一份。
+在已有模块上加一个接口：data 加一个函数、service 加一个函数、controller 加一个函数、router 加一行，没有接口声明要同步，也没有 mock 要更新。
 
 ## 技术栈
 
@@ -623,7 +680,7 @@ go run ./cmd/server -env=prod -config=/etc/myproject/config
                               │
                               ▼
 ┌──────────────────────────────────────────────────────────────┐
-│                        Handler                               │
+│                       Controller                             │
 │          • 参数校验和绑定                                      │
 │          • 调用 Service 层                                    │
 │          • 统一响应格式                                        │
@@ -632,22 +689,23 @@ go run ./cmd/server -env=prod -config=/etc/myproject/config
                               ▼
 ┌──────────────────────────────────────────────────────────────┐
 │                        Service                               │
-│          • 业务逻辑处理                                        │
-│          • 事务管理                                           │
-│          • 调用 Repository 层                                 │
+│          • 业务规则校验                                        │
+│          • 事务边界（transaction.Do）                          │
+│          • 数据层错误 → errcode                                │
 └──────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌──────────────────────────────────────────────────────────────┐
-│                      Repository                              │
-│          • 数据库 CRUD 操作                                   │
-│          • 数据查询和聚合                                      │
+│                         Data                                 │
+│          • 唯一写 SQL 的地方（包级函数，无 interface）           │
+│          • connDb(ctx) 自动复用 ctx 里的事务句柄                  │
 └──────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌──────────────────────────────────────────────────────────────┐
 │                    Database / Cache                          │
 │                   (MySQL / Redis)                            │
+│        由 internal/resource 持有的全局单例统一提供              │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -655,58 +713,60 @@ go run ./cmd/server -env=prod -config=/etc/myproject/config
 
 | 层级 | 目录 | 职责 |
 |------|------|------|
-| **Handler** | `internal/handler/` | 接收 HTTP 请求、参数校验、调用 Service、返回响应；不持有 DB/Redis |
-| **Module** | `internal/module/` | 按业务模块装配三层并声明路由；新增模块的唯一登记点 |
-| **Service** | `internal/service/` | 业务逻辑、事务边界、领域错误映射、分页上限 |
-| **Repository** | `internal/repository/` | 数据库操作封装；ORM 边界，向上只暴露领域错误 |
+| **Router** | `internal/router/` | 中间件顺序、探针、路由表；新增接口的唯一登记点 |
+| **Controller** | `internal/controller/` | 包级函数：参数校验、取 `user_id`、调 Service、统一响应；不持有 DB/Redis |
+| **Service** | `internal/service/` | 包级函数：业务规则、事务边界、错误映射、分页上限；不写 SQL |
+| **Data** | `internal/data/` | 包级函数：唯一写 SQL 的地方，`connDb(ctx)` 自动感知事务；只返回 gorm 原始错误 |
+| **Resource** | `internal/resource/` | 全局资源容器：`DB(ctx)` / `JWT()` / `Redis()` / `Cfg()`，由 bootstrap 一次性 `Set` |
 | **Model** | `internal/model/` | 数据模型定义、请求/响应结构体 |
 | **Middleware** | `internal/middleware/` | 请求 ID、panic 恢复、指标、日志、安全头、跨域、限流、请求体上限、超时、认证 |
 
-### 依赖注入流程
+### 装配流程
+
+只有一个装配点，没有构造函数链、没有 Deps 结构体、没有业务 interface：
 
 ```go
-// internal/bootstrap/bootstrap.go 中的装配流程
-jwtManager := auth.NewJWTManager(cfg.JWT.Secret, expire, cfg.JWT.Issuer)
-app.DB, _ = database.NewMySQL(DBOptions(cfg.Database))   // 1. 基础设施
-app.Health.RegisterFunc("database", pingDB)              //    注册健康检查
+// internal/bootstrap/bootstrap.go
+app.DB, _ = database.NewMySQL(DBOptions(cfg.Database))    // 1. 基础设施
+app.Redis, _ = cache.NewRedis(...)
 
-// 2. 只组装共享依赖，三层由各模块自己串
-deps := module.Deps{DB: app.DB, Tx: transaction.NewManager(app.DB), JWT: jwtManager}
+// 2. 一次性把资源交给全局容器（同时初始化 transaction 的 root DB）
+resource.Set(cfg, app.DB, app.Redis, auth.NewJWTManager(cfg.JWT.Secret, expire, cfg.JWT.Issuer))
 
-// 3. 路由：中间件 + 系统探针 + 遍历 module.All
-engine, err := router.Setup(cfg, app.Health, deps, module.All)
+health.RegisterFunc("database", pingDB)                   // 3. 健康检查
+engine, err := router.Setup(cfg)                          // 4. 中间件 + 路由表
 ```
 
-```go
-// internal/module/order.go —— 一个模块的装配与路由都在这里
-func Order(g *gin.RouterGroup, d Deps) {
-	OrderWith(g, d, service.NewOrderService(repository.NewOrder(d.DB), d.Tx))
-}
-```
+Controller / Service / Data 都是包级函数，`data` 需要连接时自己去 `resource.DB(ctx)` 拿。代价是拿不到 mock 注入点 —— 这也是走真库集成测试的原因（见[测试](#测试)）；收益是新增一个接口不需要碰任何装配代码。分层没有因此消失，只是层与层之间用包级函数调用而不是接口 + 注入，边界由 `test/layering_test.go` 强制。
 
-不用 [google/wire](https://github.com/google/wire) 之类的代码生成：装配链只有三层且形状固定，一行 `service.NewOrderService(repository.NewOrder(d.DB), repository.NewOrderStatusLog(d.DB), d.Tx)` 就说完了，引入 codegen 反而多了一个需要维护的构建步骤。
+同理不需要 [google/wire](https://github.com/google/wire) 之类的代码生成：已经没有装配链可生成了。
 
 ### 事务用法
 
-判断标准只有一条：**一个业务动作是否对应多次写入**。单条 INSERT/UPDATE 本身就是原子的，GORM 默认还会替它套一层事务，再包一次 `tx.Do` 只是多一次 BEGIN/COMMIT 往返 —— 所以 `orderService.Create` 里没有事务。
+判断标准只有一条：**一个业务动作是否对应多次写入**。单条 INSERT/UPDATE 本身就是原子的，GORM 默认还会替它套一层事务，再包一次 `transaction.Do` 只是多一次 BEGIN/COMMIT 往返 —— 所以 `service.CreateOrder` 里没有事务。
 
-真实用例见 `internal/service/order.go` 的 `UpdateStatus`：改 `orders.status` 和往 `order_status_logs` 追加流水必须同生同死，否则要么查不出「谁改的」，要么留下一条与事实不符的假记录。
+真实用例见 `internal/service/order.go` 的 `UpdateOrderStatus`：改 `orders.status` 和往 `order_status_logs` 追加流水必须同生同死，否则要么查不出「谁改的」，要么留下一条与事实不符的假记录。
 
 ```go
-err = s.tx.Do(ctx, func(ctx context.Context) error {
-    // 带原状态做条件更新，状态已被别人改掉时返回 ErrConflict
-    if err := s.orderRepo.UpdateStatus(ctx, id, order.Status, req.Status); err != nil {
-        return err
-    }
-    return s.logRepo.Create(ctx, &model.OrderStatusLog{
-        OrderID: id, FromStatus: order.Status, ToStatus: req.Status, OperatorID: userID,
-    })
+return transaction.Do(ctx, func(ctx context.Context) error {
+	// 带原状态做条件更新，影响 0 行说明状态已被并发请求改掉
+	affected, err := data.UpdateOrderStatus(ctx, id, order.Status, req.Status)
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return errcode.ErrInvalidOrderStatus.WithDetails("订单状态已被其他操作变更，请重新查询后重试")
+	}
+
+	return data.CreateOrderStatusLog(ctx, &model.OrderStatusLog{
+		OrderID: id, FromStatus: order.Status, ToStatus: req.Status, OperatorID: userID,
+	})
 })
 ```
 
-`Do` 把事务句柄放进 ctx，repository 的 `base.conn(ctx)` 自动认领，所以 service 全程不碰 `*gorm.DB`，repository 也不必为事务写第二套方法。闭包返回任何 error（包括上面的 `ErrConflict`）都整体回滚；嵌套调用 `Do` 会复用外层事务（SavePoint 语义）。
+`Do` 把事务句柄放进 ctx，`data` 层的 `connDb(ctx)` 自动认领 —— 所以同一个 data 函数在事务内外都能用，不必写第二套 `XxxWithTx`。闭包返回任何 error 都整体回滚；嵌套调用 `Do` 会复用外层事务（SavePoint 语义）。
 
-一条约束：**闭包收到的 ctx 不能逃出闭包**。`Do` 返回时会把 ctx 里的句柄置为失效，此后 `TxFrom` 一律返回 false —— 因为事务早已 Commit/Rollback，把 ctx 交给后台 goroutine 再拿它写库就是在用一个已结束的 `*sql.Tx`。另外没有导出 `WithTx`：写入口一旦公开，任何代码都能把普通 `*gorm.DB` 冒充成事务句柄塞进 ctx，repository 会当事务用而实际每条语句自动提交。事务的唯一入口是 `Manager.Do`。
+一条约束：**闭包收到的 ctx 不能逃出闭包**。`Do` 返回时会把 ctx 里的句柄置为失效，此后 `TxFrom` 一律返回 false —— 因为事务早已 Commit/Rollback，把 ctx 交给后台 goroutine 再拿它写库就是在用一个已结束的 `*sql.Tx`。另外没有导出 `WithTx`：写入口一旦公开，任何代码都能把普通 `*gorm.DB` 冒充成事务句柄塞进 ctx，`resource.DB(ctx)` 会当事务用而实际每条语句自动提交。事务的唯一入口是 `transaction.Do`。
 
 ### 日志用法
 
@@ -953,8 +1013,34 @@ histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by 
 | 错误码 | HTTP 状态码 | 描述 |
 |--------|------------|------|
 | 40001 | 404 | 订单不存在 |
-| 40002 | 400 | 无效的订单状态 |
+| 40002 | 409 | 无效的订单状态（状态流转非法或并发冲突） |
 | 40003 | 400 | 订单无法删除 |
+
+## 测试
+
+框架不留 mock 注入点，所以业务链路一律**打真实数据库**。理由很直接：mock 出来的 DB 只能验证「我调了这个方法」，验不了唯一键冲突、条件更新的 `RowsAffected`、事务回滚这些真正会出问题的地方 —— 而这些恰好是本框架的核心机制。
+
+测试分两类：
+
+- **免 DB 的框架测试** `test/framework_test.go` —— 405/413、限流、探针绕过限流、panic 记成 500、指标 route 标签是模板、安全头。`test/layering_test.go` 扫 import 表守分层边界（service 不许 import gorm、controller 不许 import data、data 不许 import errcode）。这两个任何环境都能跑。
+- **真库集成测试** `test/user_api_test.go`、`order_api_test.go`、`tx_test.go` —— 走完整 HTTP 链路（`httptest` + 真 engine + 真库），用例自己 `t.Cleanup` 清数据。连不上库时会 `t.Skip` 并打印起库命令，不会静默通过。
+
+`test/setup_test.go` 的 `TestMain` 负责：加载 `configs/config.dev.yaml` → 关掉限流与 body 日志 → 连库 → `AutoMigrate` 三张表 → `health.Init` → `resource.Set` → `router.Setup` 建出全局 engine。
+
+起本地依赖并跑全量：
+
+```bash
+docker compose up -d mysql        # 或 make up（带 Redis）
+
+APP_DATABASE_HOST=127.0.0.1 \
+APP_DATABASE_PASSWORD=devpassword \
+APP_DATABASE_DBNAME=gin \
+go test ./...
+
+docker compose down               # 用完停掉
+```
+
+数据库连接参数走 `APP_DATABASE_*` 环境变量覆盖，不需要在仓库里放凭据文件。
 
 ## 常用命令
 
@@ -1072,18 +1158,21 @@ logger.C(ctx).Info("order created", "order_no", order.OrderNo)
 
 ### 添加新的业务模块
 
-1. **定义模型** - `internal/model/xxx.go`（列表请求内嵌 `model.PageRequest`；金额字段用 `int64` 存分）
-2. **创建 Repository** - `internal/repository/xxx.go`，嵌入 `base` 并提供 `NewXxx(db)`，用 `r.conn(ctx)` 取连接以自动感知事务，错误经 `wrapErr` 转为 `ErrNotFound`/`ErrConflict`；更新用 `Select(白名单).Updates` 而不是 `Save`（`Save` 是全字段覆盖，并发下会丢更新）
-3. **创建 Service** - `internal/service/xxx.go`，把仓储层领域错误翻译成 `errcode`，跨表写入用 `s.tx.Do(ctx, ...)`
-4. **创建 Handler** - `internal/handler/xxx.go`，用 `bindJSON` / `bindQuery` 绑定参数（自带校验错误中文化与 413 识别），只做绑定与响应
-5. **装配模块** - `internal/module/xxx.go`，写 `Xxx(g, d)` 与 `XxxWith(g, d, svc)`：前者从 `Deps` 串起三层，后者留给测试注入 stub；路由在这里声明
-6. **登记模块** - 在 `internal/module/module.go` 的 `All` 里加一行。这是唯一的登记点，三层聚合器已经取消
-7. **健康检查** - 若引入了新的外部依赖，在 `internal/bootstrap/bootstrap.go` 中通过 `app.Health.RegisterFunc("xxx", ...)` 注册，`/readyz` 会自动纳入
-8. **后台 goroutine** - 一律用 `safego.Go`，裸 `go func` 里的 panic 不会被 Recovery 中间件捕获，会直接终止进程
+1. **定义模型** - `internal/model/xxx.go`（列表请求内嵌 `model.PageRequest`；金额字段用 `int64` 存分；实体上加 `ToResponse()`）
+2. **创建 Data** - `internal/data/xxx.go`，包级函数，用 `connDb(ctx)` 取连接写 gorm 查询；只返回 gorm 原始错误，不 import `errcode`；更新用 `Select(白名单).Updates` 而不是 `Save`（`Save` 是全字段覆盖，并发下会丢更新）
+3. **创建 Service** - `internal/service/xxx.go`，包级函数，调 `data.Xxx`，用 `data.IsNotFound` / `data.IsDuplicate` 判定后翻译成 `errcode`，跨表写入用 `transaction.Do(ctx, ...)` 包住
+4. **创建 Controller** - `internal/controller/xxx.go`，包级函数，用 `bindJSON` / `bindQuery` 绑定参数（自带校验错误中文化与 413 识别），需要身份时开头调 `middleware.RequireUserID(c)`，只做绑定与响应
+5. **登记路由** - 在 `internal/router/router.go` 加一个 `registerXxx(v1, auth)` 并在 `registerAPIRoutes` 里调用一次
+6. **登记建表** - 在 `cmd/migrate/main.go` 的 models 列表里加上新实体
+7. **错误码** - 在 `pkg/errcode/` 按模块段位加新错误码
+8. **健康检查** - 若引入了新的外部依赖，在 `internal/bootstrap/bootstrap.go` 中通过 `health.RegisterFunc("xxx", ...)` 注册，`/readyz` 会自动纳入
+9. **后台 goroutine** - 一律用 `safego.Go`，裸 `go func` 里的 panic 不会被 Recovery 中间件捕获，会直接终止进程
+
+合计：**4 个新文件（model / data / service / controller）+ 2 个登记点（router、migrate）**，没有接口、没有构造函数、没有装配文件。分层边界由 `test/layering_test.go` 扫 import 表守着。
 
 ### 添加新的中间件
 
-在 `internal/middleware/` 创建新文件，然后在 `internal/router/router.go` 的中间件链中按顺序注册：
+在 `internal/middleware/` 创建新文件，然后在 `internal/router/router.go` 的 `useBaseMiddleware` / `useThrottleMiddleware` 里按顺序注册：
 
 ```go
 r.Use(middleware.YourMiddleware())
