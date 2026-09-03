@@ -26,24 +26,28 @@ func main() {
 }
 
 func run() error {
+	// 加载配置
 	cfg, err := loadConfig()
 	if err != nil {
 		return err
 	}
 
 	// 日志优先初始化：后续所有组件的启动日志都要经过它
-	if err := logger.Init(logger.Options{
+	err = logger.Init(logger.Options{
 		Level:      cfg.Log.Level,
 		Format:     cfg.Log.Format,
 		Dir:        cfg.Log.FilePath,
 		AddSource:  cfg.Log.AddSource,
 		MaxBackups: cfg.Log.MaxBackups,
 		MaxAgeDays: cfg.Log.MaxAgeDays,
-	}); err != nil {
+	})
+	if err != nil {
 		// 文件不可写不应阻塞启动，降级为仅 stdout
 		fmt.Fprintf(os.Stderr, "warn: %v，日志降级为仅 stdout\n", err)
 	}
-	defer func() { _ = logger.Close() }()
+	defer func() {
+		_ = logger.Close()
+	}()
 
 	// 生产环境不对外暴露错误细节
 	response.SetExposeDetails(!cfg.IsProd())
@@ -58,6 +62,7 @@ func run() error {
 	return app.Run()
 }
 
+// 加载配置文件，优先级：命令行参数 > 环境变量 > 默认值。
 func loadConfig() (*config.Config, error) {
 	defaultEnv := os.Getenv("APP_ENV")
 	if defaultEnv == "" {

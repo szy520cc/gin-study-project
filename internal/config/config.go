@@ -16,14 +16,27 @@ type Config struct {
 	// 一旦允许被配置文件或环境变量覆盖，生产校验就能被一行配置绕开。
 	Env string `mapstructure:"-"`
 
-	Server    ServerConfig    `mapstructure:"server"`
-	Admin     AdminConfig     `mapstructure:"admin"`
-	Database  DatabaseConfig  `mapstructure:"database"`
-	Redis     RedisConfig     `mapstructure:"redis"`
-	Log       LogConfig       `mapstructure:"log"`
-	JWT       JWTConfig       `mapstructure:"jwt"`
-	CORS      CORSConfig      `mapstructure:"cors"`
-	RateLimit RateLimitConfig `mapstructure:"rate_limit"`
+	Server    ServerConfig              `mapstructure:"server"`
+	Admin     AdminConfig               `mapstructure:"admin"`
+	Databases map[string]DatabaseConfig `mapstructure:"databases"`
+	Redises   map[string]RedisConfig    `mapstructure:"redises"`
+	Log       LogConfig                 `mapstructure:"log"`
+	JWT       JWTConfig                 `mapstructure:"jwt"`
+	CORS      CORSConfig                `mapstructure:"cors"`
+	RateLimit RateLimitConfig           `mapstructure:"rate_limit"`
+}
+
+// DefaultDBName 主库的约定名。业务不显式指定数据源时默认用这个。
+const DefaultDBName = "default"
+
+// DefaultDatabase 返回主库配置。未配置时返回零值，由 Validate 兜底报错。
+func (c *Config) DefaultDatabase() DatabaseConfig {
+	return c.Databases[DefaultDBName]
+}
+
+// DefaultRedis 返回主 Redis 配置。未配置时返回零值。
+func (c *Config) DefaultRedis() RedisConfig {
+	return c.Redises[DefaultDBName]
 }
 
 // 合法的部署环境。白名单化的理由见 Load：
@@ -93,13 +106,53 @@ type DatabaseConfig struct {
 	LogSQLParams bool `mapstructure:"log_sql_params"`
 }
 
-// RedisConfig Redis 配置
+// RedisConfig Redis 配置。
+// 不再有 enabled 字段：出现在 redises map 里的就是「启用」。
+// 不想要 Redis 就在配置里不写 redises（或只写需要的实例），语义更直白。
 type RedisConfig struct {
-	Enabled  bool   `mapstructure:"enabled"`
 	Host     string `mapstructure:"host"`
 	Port     int    `mapstructure:"port"`
 	Password string `mapstructure:"password"`
 	DB       int    `mapstructure:"db"`
+}
+
+// ApplyDefaults 对未显式设置的数据库字段补默认值。
+//
+// 改成 map 结构后，viper 的 SetDefault 只能照顾 default 这一个库；
+// 额外库的字段漏写就是零值，比如 MaxOpenConns=0 会被 gorm 当成「不限制」，
+// 与直觉相反。统一在这里补，保证每个数据源行为一致。
+func (d *DatabaseConfig) ApplyDefaults() {
+	if d.Driver == "" {
+		d.Driver = "mysql"
+	}
+	if d.Port == 0 {
+		d.Port = 3306
+	}
+	if d.MaxIdleConns == 0 {
+		d.MaxIdleConns = 10
+	}
+	if d.MaxOpenConns == 0 {
+		d.MaxOpenConns = 100
+	}
+	if d.ConnMaxLifetime == 0 {
+		d.ConnMaxLifetime = 60
+	}
+	if d.LogLevel == "" {
+		d.LogLevel = "warn"
+	}
+	if d.SlowThreshold == 0 {
+		d.SlowThreshold = 200
+	}
+}
+
+// ApplyDefaults 补 Redis 默认值。DB 字段 0 本身就是合法默认，无需处理。
+func (r *RedisConfig) ApplyDefaults() {
+	if r.Host == "" {
+		r.Host = "127.0.0.1"
+	}
+	if r.Port == 0 {
+		r.Port = 6379
+	}
 }
 
 // LogConfig 日志配置
@@ -183,22 +236,9 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("admin.addr", "127.0.0.1:9090")
 	v.SetDefault("admin.pprof", true)
 
-	v.SetDefault("database.driver", "mysql")
-	v.SetDefault("database.port", 3306)
-	v.SetDefault("database.max_idle_conns", 10)
-	v.SetDefault("database.max_open_conns", 100)
-	v.SetDefault("database.conn_max_lifetime", 60)
-	v.SetDefault("database.log_level", "warn")
-	v.SetDefault("database.slow_threshold", 200)
-	// SQL 绑定参数默认不落盘：里面是邮箱、手机号、口令哈希这类数据
-	v.SetDefault("database.log_sql_params", false)
-
-	v.SetDefault("redis.enabled", true)
-	// 显式给出默认 host：留空时 go-redis 的 Addr 会是 ":6379"，
-	// 看起来「没配」实际连的是本机，排查时很容易被误导
-	v.SetDefault("redis.host", "127.0.0.1")
-	v.SetDefault("redis.port", 6379)
-	v.SetDefault("redis.db", 0)
+	// 数据库与 Redis 的连接参数默认值不在 viper 里设，改由
+	// DatabaseConfig.ApplyDefaults / RedisConfig.ApplyDefaults 在 Load 末尾统一补。
+	// 原因：map 结构下 SetDefault 只能照顾 default 这一个库，额外库漏写就变零值。
 
 	v.SetDefault("log.level", "info")
 	v.SetDefault("log.format", "json")
@@ -234,14 +274,18 @@ func setDefaults(v *viper.Viper) {
 // envOnlyKeys 可能只通过环境变量提供的配置项。
 //
 // 注意：这里登记的 key 会被赋一个空默认值，所以**不要**把已经有真实默认值的
-// key 放进来（例如 redis.host 默认 127.0.0.1），否则空值会把默认值覆盖掉。
+// key 放进来（例如 log.level 默认 info），否则空值会把默认值覆盖掉。
 // 有默认值的 key 本身就已经出现在 AllKeys 里，BindEnv 照样生效。
+//
+// 多数据源下只登记 default 主库的敏感项：额外库（如 databases.analytics）的名字
+// 无法静态枚举，其 password 等字段必须写在 config.yaml 里（空值占位），
+// 这样它们进入 AllKeys，环境变量 APP_DATABASES_<NAME>_PASSWORD 才能覆盖。
 var envOnlyKeys = []string{
-	"database.host",
-	"database.username",
-	"database.password",
-	"database.dbname",
-	"redis.password",
+	"databases.default.host",
+	"databases.default.username",
+	"databases.default.password",
+	"databases.default.dbname",
+	"redises.default.password",
 	"jwt.secret",
 	"log.file_path",
 }
@@ -320,6 +364,19 @@ func Load(path string, env string) (*Config, error) {
 		return nil, fmt.Errorf("解析配置文件失败: %w", err)
 	}
 	cfg.Env = env
+
+	// 对每个数据源补默认值。必须在 Validate 之前：校验要检查的是补全后的值，
+	// 否则「漏写 log_level 的额外库」会因为空值被误判非法。
+	for name := range cfg.Databases {
+		d := cfg.Databases[name]
+		d.ApplyDefaults()
+		cfg.Databases[name] = d
+	}
+	for name := range cfg.Redises {
+		r := cfg.Redises[name]
+		r.ApplyDefaults()
+		cfg.Redises[name] = r
+	}
 
 	if err := cfg.Validate(); err != nil {
 		return nil, err

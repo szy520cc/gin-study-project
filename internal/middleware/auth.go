@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"errors"
-	"strconv"
 	"strings"
 
 	"myproject/internal/resource"
@@ -60,9 +59,10 @@ func Auth() gin.HandlerFunc {
 
 // RequireUserID 取当前登录用户 ID，取不到就直接回 401 并中断请求，返回 false。
 //
-// controller 一律用这个而不是 CurrentUserID：后者取不到身份时返回 0（fail-open），
-// 一旦某个新路由组漏挂 Auth，接口不会 401，而是拿 user_id=0 去读写数据 ——
-// 落一批归属为 0 的订单，或把 user_id=0 的数据返回给匿名调用方。
+// controller 一律用这个，而不是自己从 ctx 取值后「取不到就返回 0」：
+// fail-open 的写法下，一旦某个新路由组漏挂 Auth，接口不会 401，
+// 而是拿 user_id=0 去读写数据 —— 落一批归属为 0 的订单，
+// 或把 user_id=0 的数据返回给匿名调用方。
 func RequireUserID(c *gin.Context) (uint64, bool) {
 	if v, ok := c.Get(CtxUserID); ok {
 		if id, ok := v.(uint64); ok && id != 0 {
@@ -75,32 +75,4 @@ func RequireUserID(c *gin.Context) (uint64, bool) {
 		"path", c.FullPath(), "method", c.Request.Method)
 	response.Error(c, errcode.ErrUnauthorized)
 	return 0, false
-}
-
-// CurrentUserID 获取当前登录用户 ID，取不到返回 0。
-// 只适合日志、审计这类「没有也能继续」的场景；鉴权路径用 RequireUserID。
-func CurrentUserID(c *gin.Context) uint64 {
-	if v, ok := c.Get(CtxUserID); ok {
-		if id, ok := v.(uint64); ok {
-			return id
-		}
-	}
-	return 0
-}
-
-// SelfOnly 仅允许操作自己的资源（对比路径参数与当前登录用户）。
-//
-// 原路由里 DELETE /users/:id 和 PUT /users/profile 只校验了「是否登录」，
-// 任何登录用户都能删除任意账号，属于越权漏洞。
-// 引入角色体系前，先用归属校验兜住。
-func SelfOnly(param string) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		target := c.Param(param)
-		current := CurrentUserID(c)
-		if target == "" || current == 0 || target != strconv.FormatUint(current, 10) {
-			response.Error(c, errcode.ErrForbidden.WithDetails("只能操作自己的资源"))
-			return
-		}
-		c.Next()
-	}
 }

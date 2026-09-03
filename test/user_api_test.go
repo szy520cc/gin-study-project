@@ -82,9 +82,15 @@ func newUser(t *testing.T) (uint64, string) {
 	require.NotEmpty(t, login.Token)
 
 	t.Cleanup(func() {
-		testDB.Where("order_id IN (?)",
-			testDB.Table("orders").Select("id").Where("user_id = ?", created.ID),
-		).Delete(&model.OrderStatusLog{})
+		// 先把订单 ID 查出来再删流水，不用嵌套子查询当 IN 的参数：
+		// 后者复用 testDB 的 session，可读性差，且外层一旦带上别的条件就会互相污染。
+		var orderIDs []uint64
+		testDB.Model(&model.Order{}).
+			Where("user_id = ?", created.ID).
+			Pluck("id", &orderIDs)
+		if len(orderIDs) > 0 {
+			testDB.Where("order_id IN ?", orderIDs).Delete(&model.OrderStatusLog{})
+		}
 		testDB.Where("user_id = ?", created.ID).Delete(&model.Order{})
 		testDB.Delete(&model.User{}, created.ID)
 	})
@@ -143,18 +149,6 @@ func TestUserFlow(t *testing.T) {
 		assert.Equal(t, 2, list.PageSize)
 		assert.LessOrEqual(t, len(list.List), 2)
 		assert.GreaterOrEqual(t, list.Total, int64(1))
-	})
-
-	t.Run("只能删自己", func(t *testing.T) {
-		code, _ := do(t, http.MethodDelete, fmt.Sprintf("/api/v1/users/%d", id+1), token, nil)
-		assert.Equal(t, http.StatusForbidden, code)
-
-		code, _ = do(t, http.MethodDelete, fmt.Sprintf("/api/v1/users/%d", id), token, nil)
-		assert.Equal(t, http.StatusOK, code)
-
-		var count int64
-		testDB.Model(&model.User{}).Where("id = ?", id).Count(&count)
-		assert.Zero(t, count, "删除后数据库里不应还有这行")
 	})
 }
 

@@ -59,11 +59,6 @@ func UpdateUserProfile(ctx context.Context, id uint64, user *model.User) error {
 		Select("email", "phone", "avatar").Updates(user).Error
 }
 
-// DeleteUser 按主键删除用户
-func DeleteUser(ctx context.Context, id uint64) error {
-	return connDb(ctx).Delete(&model.User{}, id).Error
-}
-
 // ListUsers 分页查询用户，返回当页数据与总数。
 // page/pageSize 由 service 归一化后传入，本层不做上限判断。
 func ListUsers(ctx context.Context, page, pageSize int) ([]*model.User, int64, error) {

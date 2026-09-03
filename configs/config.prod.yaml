@@ -1,8 +1,8 @@
 # 生产环境配置 —— 仅覆盖与默认配置的差异项。
 #
 # 凭据一律不落盘，必须由部署环境注入：
-#   APP_DATABASE_HOST / APP_DATABASE_USERNAME / APP_DATABASE_PASSWORD / APP_DATABASE_DBNAME
-#   APP_REDIS_HOST / APP_REDIS_PASSWORD
+#   APP_DATABASES_DEFAULT_HOST / APP_DATABASES_DEFAULT_USERNAME / APP_DATABASES_DEFAULT_PASSWORD / APP_DATABASES_DEFAULT_DBNAME
+#   APP_REDISES_DEFAULT_HOST / APP_REDISES_DEFAULT_PASSWORD
 #   APP_JWT_SECRET   （长度 >= 32，否则启动时校验失败）
 
 server:
@@ -22,10 +22,11 @@ admin:
   addr: "127.0.0.1:9090"
   pprof: false
 
-database:
-  log_level: "warn" # 生产不打印全量 SQL，避免泄露参数与性能损耗
-  slow_threshold: 200
-  max_open_conns: 200
+databases:
+  default:
+    log_level: "warn" # 生产不打印全量 SQL，避免泄露参数与性能损耗
+    slow_threshold: 200
+    max_open_conns: 200
 
 log:
   level: "info"

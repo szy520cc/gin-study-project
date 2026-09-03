@@ -8,5 +8,6 @@ log:
   level: "debug"
   format: "console"
 
-database:
-  log_level: "warn"
+databases:
+  default:
+    log_level: "warn"

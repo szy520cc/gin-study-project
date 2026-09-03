@@ -4,7 +4,7 @@
 #   1. 本文件会被版本管理，**不要写任何真实凭据**。
 #   2. 本机开发把真实值写进 config/config.local.yaml（已被 .gitignore 忽略）。
 #   3. 测试/生产通过环境变量注入，命名规则 APP_ + 大写 key + 下划线，例如：
-#        APP_DATABASE_PASSWORD、APP_REDIS_PASSWORD、APP_JWT_SECRET
+#        APP_DATABASES_DEFAULT_PASSWORD、APP_REDISES_DEFAULT_PASSWORD、APP_JWT_SECRET
 #   4. 未在此列出的项使用 config.go:setDefaults 中的默认值。
 
 server:
@@ -32,25 +32,30 @@ admin:
   addr: "127.0.0.1:9090" # 留空则不启动 admin 服务
   pprof: true
 
-database:
-  driver: "mysql"
-  host: "127.0.0.1"
-  port: 3306
-  username: "root"
-  password: "" # 通过 APP_DATABASE_PASSWORD 或 config.local.yaml 注入
-  dbname: "gin"
-  max_idle_conns: 10
-  max_open_conns: 100
-  conn_max_lifetime: 60 # 分钟
-  log_level: "warn" # silent / error / warn / info
-  slow_threshold: 200 # 毫秒
+# 数据源：map 结构，key 是数据源名，default 是主库（业务默认走它）。
+# 需要连多个库时在这里加一项，如 analytics，业务用 resource.DBNamed(ctx, "analytics") 取。
+databases:
+  default:
+    driver: "mysql"
+    host: "127.0.0.1"
+    port: 3306
+    username: "root"
+    password: "" # 通过 APP_DATABASES_DEFAULT_PASSWORD 或 config.local.yaml 注入
+    dbname: "gin"
+    max_idle_conns: 10
+    max_open_conns: 100
+    conn_max_lifetime: 60 # 分钟
+    log_level: "warn" # silent / error / warn / info
+    slow_threshold: 200 # 毫秒
 
-redis:
-  enabled: true
-  host: "127.0.0.1"
-  port: 6379
-  password: "" # 通过 APP_REDIS_PASSWORD 或 config.local.yaml 注入
-  db: 0
+# Redis 实例：map 结构，key 是实例名，default 是主实例。
+# 不需要 Redis 就不写 redises（或只写需要的实例）。
+redises:
+  default:
+    host: "127.0.0.1"
+    port: 6379
+    password: "" # 通过 APP_REDISES_DEFAULT_PASSWORD 或 config.local.yaml 注入
+    db: 0
 
 log:
   level: "info"

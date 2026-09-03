@@ -46,11 +46,33 @@ func TestMain(m *testing.M) {
 	}
 	code := m.Run()
 	if testDB != nil {
+		cleanupLeftovers(testDB)
 		if sqlDB, err := testDB.DB(); err == nil {
 			_ = sqlDB.Close()
 		}
 	}
 	os.Exit(code)
+}
+
+// cleanupLeftovers 按测试专用前缀兜底清理残留数据。
+//
+// 正常路径各用例靠 t.Cleanup 删自己造的数据，但 Cleanup 只在用例跑完时执行：
+// go test 超时被 kill、Ctrl+C、panic 退出都会让整批 Cleanup 丢失。
+// 残留本身不影响断言（每个用例用独立新建的用户，列表按 user_id 过滤），
+// 但库会越跑越脏，且「上次跑崩留下的孤儿数据」会在排查时误导人。
+//
+// 只删测试自己造的三类数据，前缀是测试专用的：
+//   - 订单号 TXIT 开头：tx_test.go 的 txOrder
+//   - 用户名 it_ 开头：user_api_test.go 的 newUser
+//   - 孤儿流水：order_id 在 orders 里已不存在（订单被删、流水还在）
+//
+// 下划线在 LIKE 里是单字符通配符，必须转义成 \_ 才能当字面量匹配。
+func cleanupLeftovers(db *gorm.DB) {
+	db.Where("order_no LIKE ?", "TXIT%").Delete(&model.Order{})
+	db.Where("username LIKE ?", `it\_%`).Delete(&model.User{})
+
+	orphan := db.Table("orders").Select("id")
+	db.Where("order_id NOT IN (?)", orphan).Delete(&model.OrderStatusLog{})
 }
 
 func setup() error {
@@ -78,11 +100,11 @@ func setup() error {
 	cfg.RateLimit.Enabled = false
 
 	// 连库失败不终止：记下原因，读写类用例跳过
-	db, err := database.NewMySQL(bootstrap.DBOptions(cfg.Database))
+	db, err := database.NewMySQL(bootstrap.DBOptions(cfg.DefaultDatabase()))
 	switch {
 	case err != nil:
 		dbSkip = fmt.Sprintf("连接数据库失败（%s:%d/%s）: %v",
-			cfg.Database.Host, cfg.Database.Port, cfg.Database.DBName, err)
+			cfg.DefaultDatabase().Host, cfg.DefaultDatabase().Port, cfg.DefaultDatabase().DBName, err)
 	default:
 		if err := db.AutoMigrate(&model.User{}, &model.Order{}, &model.OrderStatusLog{}); err != nil {
 			dbSkip = fmt.Sprintf("建表失败: %v", err)
@@ -92,7 +114,9 @@ func setup() error {
 	}
 
 	health.Init(time.Second, 0)
-	resource.Set(cfg, db, nil, auth.NewJWTManager(cfg.JWT.Secret, time.Hour, "myproject-test"))
+	// 测试只用主库：dbs 只放 default 一个。db 为 nil（连库失败）时也照常注入，
+	// 非 DB 用例不碰 resource 不会触发 panic，DB 用例由 requireDB 跳过。
+	resource.Set(cfg, map[string]*gorm.DB{"default": db}, nil, auth.NewJWTManager(cfg.JWT.Secret, time.Hour, "myproject-test"))
 
 	engine, err := router.Setup(cfg)
 	if err != nil {

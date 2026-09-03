@@ -120,7 +120,6 @@ var (
 	ErrInvalidParams = New(10002, "参数错误", http.StatusBadRequest)
 	ErrNotFound      = New(10003, "资源不存在", http.StatusNotFound)
 	ErrUnauthorized  = New(10004, "未授权", http.StatusUnauthorized)
-	ErrForbidden     = New(10005, "禁止访问", http.StatusForbidden)
 	ErrTooManyReq    = New(10006, "请求过于频繁", http.StatusTooManyRequests)
 	ErrTimeout       = New(10007, "请求处理超时", http.StatusGatewayTimeout)
 	// ErrMethodNotAllowed 路径存在但方法不匹配。需要 gin 开启 HandleMethodNotAllowed 才会触发。
