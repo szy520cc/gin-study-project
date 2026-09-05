@@ -1,0 +1,23 @@
+{
+  "type": "page",
+  "title": "新增用户",
+  "body": {
+    "type": "form",
+    "api": {
+      "method": "post",
+      "url": "/api/v1/users/register"
+    },
+    "mode": "horizontal",
+    "redirect": "#/pages/users.json",
+    "body": [
+      { "type": "input-text", "name": "username", "label": "用户名", "required": true },
+      { "type": "input-email", "name": "email", "label": "邮箱", "required": true },
+      { "type": "input-text", "name": "phone", "label": "手机号" },
+      { "type": "input-password", "name": "password", "label": "初始密码", "required": true }
+    ],
+    "actions": [
+      { "type": "submit", "label": "提交", "level": "primary" },
+      { "type": "button", "label": "返回列表", "actionType": "link", "link": "#/pages/users.json" }
+    ]
+  }
+}

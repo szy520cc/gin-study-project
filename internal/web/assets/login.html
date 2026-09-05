@@ -1,81 +1,48 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-<meta charset="utf-8">
-<title>登录 · Gin Study 后台</title>
+<meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<style>
-  body { margin: 0; height: 100vh; display: flex; align-items: center; justify-content: center;
-         background: #f5f7fa; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
-  .card { width: 360px; padding: 32px 28px; background: #fff; border-radius: 8px;
-          box-shadow: 0 2px 12px rgba(0,0,0,.08); }
-  h1 { margin: 0 0 6px; font-size: 20px; }
-  .hint { color: #888; font-size: 12px; margin-bottom: 20px; }
-  label { display: block; font-size: 13px; color: #444; margin: 12px 0 6px; }
-  input { width: 100%; box-sizing: border-box; padding: 9px 11px; font-size: 14px;
-          border: 1px solid #dcdfe6; border-radius: 4px; outline: none; }
-  input:focus { border-color: #409eff; }
-  button { width: 100%; margin-top: 20px; padding: 10px 0; font-size: 14px; color: #fff;
-           background: #409eff; border: none; border-radius: 4px; cursor: pointer; }
-  button:hover { background: #66b1ff; }
-  button:disabled { background: #a0cfff; cursor: not-allowed; }
-  .err { margin-top: 12px; color: #f56c6c; font-size: 13px; min-height: 18px; }
-</style>
+<title>登录 · Gin Study</title>
+<!-- 本地静态资源：Bootstrap 5.3.3 + 公共样式（登录页不加载 amis SDK） -->
+<link rel="stylesheet" href="/admin/static/bootstrap/bootstrap.min.css">
+<link rel="stylesheet" href="/admin/static/common/app.css">
 </head>
-<body>
-<div class="card">
-  <h1>登录后台</h1>
-  <div class="hint">Gin Study Project · 管理控制台</div>
+<body class="login-page" id="loginPage">
 
-  <label>用户名</label>
-  <input id="u" type="text" autocomplete="username" autofocus>
+<div class="login-card">
+  <div class="login-panel">
+    <div class="text-center mb-4">
+      <div class="login-logo mb-1">Gin Study</div>
+      <div class="login-title">后台管理系统 · 登录</div>
+    </div>
 
-  <label>密码</label>
-  <input id="p" type="password" autocomplete="current-password">
+    <div class="alert d-none" id="loginAlert" role="alert">
+      <span id="loginAlertText"></span>
+    </div>
 
-  <button id="b">登录</button>
-  <div class="err" id="e"></div>
+    <form id="loginForm" autocomplete="off" novalidate>
+      <div class="mb-3">
+        <label class="form-label" for="username">用户名</label>
+        <input type="text" class="form-control" id="username" placeholder="请输入用户名" autofocus required>
+      </div>
+      <div class="mb-3">
+        <label class="form-label" for="password">密码</label>
+        <input type="password" class="form-control" id="password" placeholder="请输入密码" required>
+      </div>
+      <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" id="remember">
+          <label class="form-check-label" for="remember">记住我</label>
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary w-100" id="loginBtn">登 录</button>
+    </form>
+  </div>
+  <p class="text-center text-white-50 mt-3 mb-0" style="font-size:12px">&copy; 2026 Gin Study · 后台管理系统</p>
 </div>
 
-<script>
-(function () {
-  // 登录页故意不引 amis sdk —— 一个登录表单不值得再加载 2MB JS，
-  // 而且登录页出现在 SDK 加载之前，依赖关系会乱。
-  const $u = document.getElementById('u');
-  const $p = document.getElementById('p');
-  const $b = document.getElementById('b');
-  const $e = document.getElementById('e');
-
-  async function submit() {
-    $b.disabled = true; $e.textContent = '';
-    try {
-      // 走业务登录接口，与 /api/v1/users/login 同套；后续 admin 自有登录接口另起一条
-      const r = await fetch('/api/v1/users/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: $u.value.trim(), password: $p.value }),
-      });
-      const body = await r.json();
-      if (body.code !== 0) {
-        $e.textContent = body.message || '登录失败';
-        return;
-      }
-      // 写两份：amis 默认从 'token' 读不到会触发 401 跳转登录页的死循环，
-      // 所以这边同时塞 'token'（兼容默认）和 'admin_token'（业务约定）两个 key。
-      localStorage.setItem('token', body.data.token);
-      localStorage.setItem('admin_token', body.data.token);
-      localStorage.setItem('admin_username', body.data.user.username);
-      location.replace('/admin/');
-    } catch (err) {
-      $e.textContent = '网络错误：' + err.message;
-    } finally {
-      $b.disabled = false;
-    }
-  }
-
-  $b.addEventListener('click', submit);
-  $p.addEventListener('keydown', function (e) { if (e.key === 'Enter') submit(); });
-})();
-</script>
+<script src="/admin/static/bootstrap/bootstrap.bundle.min.js"></script>
+<script src="/admin/static/common/app.js"></script>
 </body>
 </html>

@@ -1,85 +1,75 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-<meta charset="utf-8">
-<title>Gin Study · 管理后台</title>
+<meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<link rel="icon" href="data:,">
-
-<style>
-  html, body, #root { height: 100%; margin: 0; padding: 0; }
-  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
-  /* amis 自带样式在 sdk.js 内联，这里只放容器兜底 */
-</style>
+<title>Gin Study · 管理后台</title>
+<!-- 本地静态资源：Bootstrap 5.3.3（骨架）、amis 6.13（sdk 主题样式）、公共样式 -->
+<link rel="stylesheet" href="/admin/static/bootstrap/bootstrap.min.css">
+<link rel="stylesheet" href="/admin/static/amis/sdk.css">
+<link rel="stylesheet" href="/admin/static/font-awesome/all.min.css">
+<link rel="stylesheet" href="/admin/static/common/app.css">
 </head>
-<body>
-<div id="root"></div>
+<body class="app-shell" id="appShell">
 
-<!--
-  资产加载顺序：iconify 必须先于 amis —— amis 的图标系统按需调 iconify。
-  SDK 与 locale 通过 /admin/static 走 go:embed，离线/无外网环境也能用。
--->
-<script src="/admin/static/iconify.min.js"></script>
-<script src="/admin/static/sdk.js"></script>
+<!-- 顶部导航（Bootstrap） -->
+<nav class="navbar navbar-expand app-topbar">
+  <div class="container-fluid px-3">
+    <div class="d-flex align-items-center gap-2">
+      <button class="icon-btn" type="button" id="sideToggle" aria-label="折叠侧栏">
+        <i class="fa-solid fa-bars"></i>
+      </button>
+      <a class="navbar-brand" href="#/pages/home.json">
+        <span class="brand-badge"><i class="fa-solid fa-gauge-high"></i></span>
+        Gin Study
+      </a>
+    </div>
 
-<script>
-(function () {
-  // amis 6.x SDK 的全局命名空间叫 amis（IIFE），RequireJS 风格的 AMD 装载在这里不需要。
-  // 不引用第三方组件库、不用 react 单独渲染：amis 自带 React 内联在 sdk.js 里。
-  const Amis = window.amisRequire && window.amisRequire('amis');
-  if (!Amis) { document.body.innerText = 'amis SDK 加载失败'; return; }
+    <div class="d-flex align-items-center gap-2">
+      <button class="icon-btn" type="button" id="fullscreenBtn" aria-label="全屏">
+        <i class="fa-regular fa-square"></i>
+      </button>
 
-  // 登录态由 amis 自身维护：login 接口成功后会把 token 写进 localStorage，
-  // 后续每次发请求 amis 自动塞 Authorization 头（看 schema 里的 apiAdapter）。
-  // 不在前端再写一份 token 状态，避免两套真相源不同步。
-  const token = localStorage.getItem('admin_token');
-  if (!token) { location.replace('/admin/login'); return; }
+      <div class="dropdown">
+        <button class="btn d-flex align-items-center gap-2 border-0 dropdown-toggle" type="button"
+                id="userDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+          <span class="d-inline-flex align-items-center justify-content-center rounded-circle text-white"
+                style="width:30px;height:30px;background:#2f6fed;font-size:13px;font-weight:600" id="topAvatar">管</span>
+          <span class="user-name d-none d-md-inline" id="topUserName">管理员</span>
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end">
+          <li><a class="dropdown-item text-danger" href="#" id="logoutBtn"><i class="fa-solid fa-right-from-bracket me-2"></i>退出登录</a></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</nav>
 
-  Amis.embed(
-    '#root',
-    '/admin/pages/home.json',
-    {
-      // 全局上下文：每个 schema 的 api 字段都可以从这里取变量
-      // （amis 用 ${var} 插值，不是 JS 模板字符串）
-      locale: 'zh-CN',
-      theme: 'antd',
-      // 把当前用户塞给 schema，便于顶部欢迎语 / 权限判断
-      data: { username: localStorage.getItem('admin_username') || '' },
-      // 请求适配器：amis 默认把 data 直接 JSON 出去，但你的 API 成功码是 0，
-      // 不是默认的 200。status 字段告诉amis 怎么判定响应成功。
-      requestAdaptor: function (api) {
-        // 登录态读取 + 注入 Authorization（amis 6.x 默认会从 storage 取，
-        // 但本项目的 storage key 用的是 admin_token，这里显式兜一道）
-        const t = localStorage.getItem('admin_token');
-        if (t) api.headers = Object.assign({}, api.headers, { Authorization: 'Bearer ' + t });
-        return api;
-      },
-      // 响应适配：把业务响应统一映射成 amis 期望的 { status, msg, data }
-      responseAdaptor: function (api, payload) {
-        // 业务码 0 = 成功；4xx/5xx gin 已写过 response.Error，无需再判
-        if (payload && typeof payload.code === 'number') {
-          payload.status = payload.code === 0 ? 0 : payload.code;
-          payload.msg = payload.message || payload.msg || '';
-          // amis 列表接口期望 { items, total }，业务是 { list, total, page, page_size }
-          if (payload.data && Array.isArray(payload.data.list)) {
-            payload.data = {
-              items: payload.data.list,
-              total: payload.data.total,
-              page: payload.data.page,
-              page_size: payload.data.page_size,
-            };
-          }
-        }
-        return payload;
-      },
-    },
-    {
-      // 路由/懒加载：未来再加页面时，schema 里的 link 可以跳别的 json 文件
-      // 这里只配基础环境，路由功能由 schema 内部声明
-      tracker: 'track-amis',
-    }
-  );
-})();
-</script>
+<!-- 左侧菜单 -->
+<aside class="app-sidebar">
+  <nav id="sideMenu" class="side-menu"></nav>
+</aside>
+
+<!-- 主内容区（面包屑 + amis 页面容器） -->
+<main class="app-main">
+  <div class="page-head">
+    <div>
+      <div class="page-title" id="pageTitle">首页</div>
+      <nav aria-label="breadcrumb">
+        <ol class="breadcrumb" id="breadcrumb">
+          <li class="breadcrumb-item"><a href="#/pages/home.json">首页</a></li>
+        </ol>
+      </nav>
+    </div>
+  </div>
+  <div id="pageContent">
+    <div class="content-hint"><div class="spinner-border spinner-border-sm text-primary"></div> 加载中…</div>
+  </div>
+</main>
+
+<!-- 本地脚本：先 SDK、再公共逻辑 -->
+<script src="/admin/static/bootstrap/bootstrap.bundle.min.js"></script>
+<script src="/admin/static/amis/sdk.min.js"></script>
+<script src="/admin/static/common/app.js"></script>
 </body>
 </html>

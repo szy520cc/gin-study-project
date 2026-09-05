@@ -1,0 +1,35 @@
+{
+  "type": "page",
+  "title": "系统状态",
+  "body": [
+    {
+      "type": "grid",
+      "columns": [
+        { "type": "card", "header": { "title": "CPU 使用率", "subTitle": "当前负载" }, "body": "<div style='text-align:center;padding:24px 0'><i class='fa-solid fa-microchip' style='font-size:28px;color:#3498db'></i><div style='margin-top:8px;font-size:28px;font-weight:600;color:#3498db'>-- %</div></div>" },
+        { "type": "card", "header": { "title": "内存使用率", "subTitle": "已用 / 总计" }, "body": "<div style='text-align:center;padding:24px 0'><i class='fa-solid fa-memory' style='font-size:28px;color:#e67e22'></i><div style='margin-top:8px;font-size:28px;font-weight:600;color:#e67e22'>-- %</div></div>" },
+        { "type": "card", "header": { "title": "在线用户", "subTitle": "实时会话" }, "body": "<div style='text-align:center;padding:24px 0'><i class='fa-solid fa-users' style='font-size:28px;color:#27ae60'></i><div style='margin-top:8px;font-size:28px;font-weight:600;color:#27ae60'>--</div></div>" },
+        { "type": "card", "header": { "title": "运行时长", "subTitle": "服务启动至今" }, "body": "<div style='text-align:center;padding:24px 0'><i class='fa-solid fa-clock' style='font-size:28px;color:#9b59b6'></i><div style='margin-top:8px;font-size:28px;font-weight:600;color:#9b59b6'>--</div></div>" }
+      ]
+    },
+    { "type": "divider" },
+    {
+      "type": "panel",
+      "title": "服务信息",
+      "body": {
+        "type": "table",
+        "columns": [{ "name": "key", "label": "配置项" }, { "name": "value", "label": "值" }],
+        "data": {
+          "items": [
+            { "key": "Go 版本", "value": "go1.21+" },
+            { "key": "Gin 版本", "value": "v1.10+" },
+            { "key": "amis 版本", "value": "6.13.0" },
+            { "key": "数据库连接", "value": "已连接" },
+            { "key": "Redis 连接", "value": "已连接" },
+            { "key": "服务端口", "value": ":8080" },
+            { "key": "运行环境", "value": "debug" }
+          ]
+        }
+      }
+    }
+  ]
+}
