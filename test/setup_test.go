@@ -84,7 +84,7 @@ func setup() error {
 		dbSkip = fmt.Sprintf("连接数据库失败（%s:%d/%s）: %v",
 			cfg.Database.Host, cfg.Database.Port, cfg.Database.DBName, err)
 	default:
-		if err := db.AutoMigrate(&model.User{}, &model.Order{}, &model.OrderStatusLog{}); err != nil {
+		if err := db.AutoMigrate(&model.User{}, &model.Order{}, &model.OrderStatusLog{}, &model.Project{}, &model.Field{}); err != nil {
 			dbSkip = fmt.Sprintf("建表失败: %v", err)
 		} else {
 			testDB = db

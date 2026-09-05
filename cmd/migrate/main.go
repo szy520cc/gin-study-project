@@ -68,6 +68,8 @@ func main() {
 		&model.User{},
 		&model.Order{},
 		&model.OrderStatusLog{},
+		&model.Project{},
+		&model.Field{},
 	}
 
 	if *drop {

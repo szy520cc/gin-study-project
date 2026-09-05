@@ -14,10 +14,13 @@ import (
 )
 
 // CtxUserID 当前登录用户 ID 在 gin.Context 中的 key。
-//
-// 不再往 Context 里放 username：它此前只写不读，属于死代码。
-// 用户名对排查/审计有用的地方是日志，所以改为直接补进 ctx logger（见下）。
 const CtxUserID = "user_id"
+
+// CtxUsername 当前登录用户名在 gin.Context 中的 key。
+//
+// 业务里「谁创建的/谁最后编辑的」这类审计列（如 project.created_user）需要用户名，
+// 只放 ID 还得多查一次用户表；用户名同时已补进 ctx logger 供日志使用（见下）。
+const CtxUsername = "username"
 
 // Auth JWT 认证中间件。
 // 校验器从 resource 取，不再由调用方注入 —— 进程内只有一份 JWTManager。
@@ -48,6 +51,7 @@ func Auth() gin.HandlerFunc {
 		}
 
 		c.Set(CtxUserID, claims.UserID)
+		c.Set(CtxUsername, claims.Username)
 
 		// 认证成功后把用户信息补进 ctx logger，后续所有日志自动带 user_id / username
 		l := logger.C(c.Request.Context()).With("user_id", claims.UserID, "username", claims.Username)
@@ -75,4 +79,15 @@ func RequireUserID(c *gin.Context) (uint64, bool) {
 		"path", c.FullPath(), "method", c.Request.Method)
 	response.Error(c, errcode.ErrUnauthorized)
 	return 0, false
+}
+
+// Username 取当前登录用户名。仅在 Auth 之后的 controller 里使用；
+// 取不到时返回空串（业务层应避免把空用户名落进审计列）。
+func Username(c *gin.Context) string {
+	if v, ok := c.Get(CtxUsername); ok {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return ""
 }

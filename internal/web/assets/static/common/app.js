@@ -14,6 +14,13 @@
       items: [{ title: '首页', key: 'home.json', icon: 'fa-gauge-high' }]
     },
     {
+      section: '项目管理',
+      items: [
+        { title: '项目管理', key: 'project.json', icon: 'fa-diagram-project' },
+        { title: '字段管理', key: 'field.json', icon: 'fa-list-check' }
+      ]
+    },
+    {
       section: '系统管理',
       items: [
         { title: '用户列表', key: 'users.json', icon: 'fa-users' },
@@ -51,32 +58,29 @@
 
   // =========================================================
   // 鉴权 fetcher：amis.embed 的第 4 个参数 env 里传入。
-  // amis 6.x 契约：resolve { ok, data, msg }，ok=false 时 amis 自动提示 msg。
-  // =========================================================
-  function authFetcher(arg1, arg2) {
-    // 兼容两种调用：fetcher(config) 或 fetcher(url, options)
-    var cfg;
-    if (typeof arg1 === 'string') {
-      cfg = { url: arg1, method: 'GET', data: undefined };
-      if (arg2 && typeof arg2 === 'object') { cfg.method = arg2.method || cfg.method; cfg.data = arg2.data; cfg.headers = arg2.headers; }
-    } else if (arg1 && typeof arg1 === 'object') {
-      cfg = arg1;
-      if (arg2 && typeof arg2 === 'object' && cfg.data === undefined) cfg = Object.assign({}, arg1, { data: arg2.data });
-    } else {
-      cfg = { url: '', method: 'GET' };
-    }
+  // amis 6.x 契约：
+  //  - 入参是 amis 构建好的单个配置对象 {url, method, data, headers, ...}
+  //  - 返回值必须是 axios 风格 {data, status, headers}，
+  //    data 为后端响应体；amis 会再用 responseAdaptor 读取
+  //    data.status===0 → ok、data.msg/message → 提示、data.data → 业务数据。
+  // 所以这里把后端 {code,message,data} 规整为带 status 的响应体后原样返回。
+  function authFetcher(api) {
+    if (typeof api === 'string') api = { url: api, method: 'GET' };
+    if (!api || typeof api !== 'object') api = { url: '', method: 'GET' };
 
-    var url = cfg.url || '';
-    var method = (cfg.method || 'GET').toUpperCase();
-    var headers = new Headers(cfg.headers || {});
+    var url = api.url || '';
+    var method = (api.method || 'GET').toUpperCase();
+    var headers = new Headers(api.headers || {});
     headers.set('Accept', 'application/json');
 
     var token = localStorage.getItem(TOKEN_KEY);
     if (token) headers.set('Authorization', 'Bearer ' + token);
 
     var body;
-    var data = cfg.data;
-    if (data && !(data instanceof FormData)) {
+    var data = api.data;
+    if (data instanceof FormData) {
+      body = data; // multipart，交给浏览器设置 boundary
+    } else if (data !== undefined && data !== null && data !== '') {
       if (method === 'GET' || method === 'HEAD') {
         // GET 参数拼到 url
         var sp = new URLSearchParams();
@@ -90,32 +94,72 @@
         if (qs) url += (url.indexOf('?') >= 0 ? '&' : '?') + qs;
       } else {
         headers.set('Content-Type', 'application/json');
-        body = JSON.stringify(data);
+        // 已是字符串（amis 预序列化）则直接用，否则序列化对象
+        body = typeof data === 'string' ? data : JSON.stringify(data);
       }
-    } else if (data instanceof FormData) {
-      body = data; // 交给浏览器设置 multipart boundary
     }
 
     return fetch(url, { method: method, headers: headers, body: body }).then(function (res) {
       return res.json().catch(function () { return {}; }).then(function (raw) {
         raw = raw || {};
+
         // 未登录 / token 失效：HTTP 401
         if (res.status === 401) {
           logout(true);
-          return { ok: false, msg: raw.message || '登录已失效，请重新登录', data: null };
         }
-        // 业务成功：code===0
+
+        // 统一业务码：优先后端 code，其次已带 status，最后按 HTTP 兜底
         var code = raw.code;
-        if (code === undefined) code = res.ok ? 0 : 1;
-        var msg = raw.message || raw.msg || (res.ok ? '' : '请求失败（HTTP ' + res.status + '）');
+        if (code === undefined) code = raw.status;
+        if (code === undefined) code = res.ok ? 0 : res.status;
+
+        // 给响应体补上 amis responseAdaptor 需要的 status / ok / msg
         var d = raw.data;
-        // 后端列表形如 {list,total}，转为 amis 需要的 {items,total}
-        if (d && Array.isArray(d.list)) d = { items: d.list, total: d.total, count: d.total };
-        return { ok: res.ok && code === 0, msg: msg, data: d };
+        // 后端列表形如 {list,total} → amis 期望 {items,total}
+        if (d && Array.isArray(d.list)) {
+          d = { items: d.list, total: d.total, count: d.total };
+        }
+        // 写操作（增/改/删）成功时给出明确的全局提示，避免 amis 默认提示一闪而过
+        if (code === 0 && (method === 'POST' || method === 'PUT' || method === 'DELETE')) {
+          appToast('操作成功');
+        }
+
+        var body2 = {
+          status: code,
+          ok: code === 0,
+          msg: code === 0 ? '' : (raw.message || raw.msg || '请求失败（HTTP ' + res.status + '）'),
+          data: d
+        };
+
+        // 返回 axios 风格响应，amis responseAdaptor 会自动解出 {ok,status,msg,data}
+        return { status: res.status, headers: {}, data: body2 };
       });
     }).catch(function (err) {
-      return { ok: false, msg: '网络错误：' + err.message, data: null };
+      return {
+        status: 0,
+        headers: {},
+        data: { status: -1, ok: false, msg: '网络错误：' + err.message, data: null }
+      };
     });
+  }
+
+  // ---------- 全局操作提示（自绘 DOM，时长/关闭可控，不依赖 amis toast） ----------
+  function appToast(msg, type) {
+    type = type || 'success';
+    var isErr = type === 'error';
+    var el = document.createElement('div');
+    el.className = 'app-toast app-toast-' + type;
+    el.innerHTML =
+      '<i class="fa-solid ' + (isErr ? 'fa-triangle-exclamation' : 'fa-circle-check') + '"></i>' +
+      '<span></span>';
+    el.querySelector('span').textContent = msg;
+    (document.body || document.documentElement).appendChild(el);
+    // 触发过渡动画后进入可视态，5 秒后淡出移除
+    setTimeout(function () { el.classList.add('show'); }, 20);
+    setTimeout(function () {
+      el.classList.remove('show');
+      setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 300);
+    }, 5000);
   }
 
   // ---------- 登出 ----------

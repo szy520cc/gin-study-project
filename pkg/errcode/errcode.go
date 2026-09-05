@@ -159,3 +159,18 @@ var (
 	ErrInvalidOrderStatus = New(40002, "无效的订单状态", http.StatusConflict)
 	ErrOrderCannotDelete  = New(40003, "订单无法删除", http.StatusBadRequest)
 )
+
+// 项目相关错误
+var (
+	ErrProjectNotFound      = New(50001, "项目不存在", http.StatusNotFound)
+	ErrProjectLogoExists    = New(50002, "项目标识已存在", http.StatusBadRequest)
+)
+
+// 字段相关错误
+var (
+	ErrFieldNotFound            = New(60001, "字段不存在", http.StatusNotFound)
+	ErrFieldParsePathExists     = New(60002, "字段解析路径已存在", http.StatusBadRequest)
+	ErrFieldTypeInvalid         = New(60003, "字段类型不合法", http.StatusBadRequest)
+	ErrFieldDefaultValueInvalid = New(60004, "字段默认值不合法", http.StatusBadRequest)
+	ErrFieldDefaultTypeMismatch = New(60005, "字段默认值类型与字段类型不一致", http.StatusBadRequest)
+)

@@ -121,6 +121,8 @@ func registerAPIRoutes(r *gin.Engine, cfg *config.Config) {
 	v1 := r.Group("/api/v1")
 	registerUser(v1, auth, authLimit)
 	registerOrder(v1, auth)
+	registerProject(v1, auth)
+	registerField(v1, auth)
 }
 
 // registerUser 用户模块路由
@@ -149,6 +151,37 @@ func registerOrder(g *gin.RouterGroup, auth gin.HandlerFunc) {
 	}
 }
 
+// registerProject 项目管理模块路由。
+//
+// 本模块（及以后新模块）统一采用「动作式路由」，不按 REST 资源法区分 method：
+//   POST  /xxx/add    添加
+//   POST  /xxx/update 修改（body 带 id）
+//   POST  /xxx/delete 删除（body 带 id）
+//   GET   /xxx/list   列表
+//   GET   /xxx/detail 详情（query 带 id，供编辑回填）
+func registerProject(g *gin.RouterGroup, auth gin.HandlerFunc) {
+	projects := g.Group("/projects", auth)
+	{
+		projects.POST("/add", controller.CreateProject)
+		projects.POST("/update", controller.UpdateProject)
+		projects.POST("/delete", controller.DeleteProject)
+		projects.GET("/list", controller.ListProjects)
+		projects.GET("/detail", controller.GetProject)
+	}
+}
+
+// registerField 字段管理模块路由（动作式路由，见 registerProject 注释）
+func registerField(g *gin.RouterGroup, auth gin.HandlerFunc) {
+	fields := g.Group("/fields", auth)
+	{
+		fields.POST("/add", controller.CreateField)
+		fields.POST("/update", controller.UpdateField)
+		fields.POST("/delete", controller.DeleteField)
+		fields.GET("/list", controller.ListFields)
+		fields.GET("/detail", controller.GetField)
+	}
+}
+
 // registerFallbackRoutes 未匹配路由统一返回 JSON，避免 gin 默认的纯文本 404
 func registerFallbackRoutes(r *gin.Engine) {
 	r.NoRoute(controller.NotFound)
@@ -162,10 +195,11 @@ func registerFallbackRoutes(r *gin.Engine) {
 // 职责完全不同（CORS、鉴权、访问频率都不同），混在一起两边都不好扩展。
 //
 // 路径规划：
-//   /admin/             → index.html（Amis 容器）
-//   /admin/login        → login.html（独立登录页，跳过 amis 渲染壳）
-//   /admin/static/...   → SDK / 主题 css（go:embed 一并打入二进制）
-//   /admin/pages/*.json → Amis schema 文件（直接吐 JSON）
+//
+//	/admin/             → index.html（Amis 容器）
+//	/admin/login        → login.html（独立登录页，跳过 amis 渲染壳）
+//	/admin/static/...   → SDK / 主题 css（go:embed 一并打入二进制）
+//	/admin/pages/*.json → Amis schema 文件（直接吐 JSON）
 func registerAdminUI(r *gin.Engine) {
 	// /admin/login 必须单独存在：amis 的 init 逻辑会执行登录 API，
 	// 在登录前没有 token，登录页不能依赖 amis-renderer 自身的初始化流程，

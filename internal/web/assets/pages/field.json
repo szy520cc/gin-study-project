@@ -1,0 +1,217 @@
+{
+  "type": "page",
+  "title": "字段管理",
+  "body": {
+    "type": "crud",
+    "name": "fieldCrud",
+    "api": {
+      "method": "get",
+      "url": "/api/v1/fields/list"
+    },
+    "perPage": 10,
+    "pageField": "page",
+    "perPageField": "page_size",
+    "columns": [
+      { "name": "id", "label": "ID", "width": 70 },
+      { "name": "project_id", "label": "所属项目", "width": 90 },
+      { "name": "name", "label": "字段名称" },
+      { "name": "type_text", "label": "类型", "width": 80 },
+      { "name": "parse_path", "label": "解析路径", "width": 180 },
+      { "name": "default_value", "label": "默认值配置", "width": 220 },
+      { "name": "status_text", "label": "状态", "width": 80 },
+      { "name": "updated_user", "label": "最后编辑", "width": 100 },
+      { "name": "updated_at_text", "label": "更新时间", "width": 170 },
+      {
+        "type": "operation",
+        "label": "操作",
+        "width": 150,
+        "buttons": [
+          {
+            "type": "button",
+            "label": "编辑",
+            "actionType": "dialog",
+            "dialog": {
+              "title": "编辑字段",
+              "size": "lg",
+              "body": {
+                "type": "form",
+                "reload": "fieldCrud",
+                "initApi": {
+                  "method": "get",
+                  "url": "/api/v1/fields/detail?id=${id}"
+                },
+                "api": {
+                  "method": "post",
+                  "url": "/api/v1/fields/update"
+                },
+                "body": [
+                  {
+                    "type": "select",
+                    "name": "project_id",
+                    "label": "所属项目",
+                    "required": true,
+                    "source": {
+                      "method": "get",
+                      "url": "/api/v1/projects/list?page=1&page_size=100",
+                      "adaptor": "return {options:(payload.data.items||[]).map(function(it){return {label:it.name, value:String(it.id)}})};"
+                    }
+                  },
+                  { "type": "input-text", "name": "name", "label": "字段名称", "required": true, "maxLength": 200 },
+                  {
+                    "type": "select",
+                    "name": "type",
+                    "label": "字段类型",
+                    "required": true,
+                    "options": [
+                      { "label": "整数", "value": "int" },
+                      { "label": "浮点数", "value": "float" },
+                      { "label": "字符串", "value": "string" },
+                      { "label": "布尔值", "value": "bool" },
+                      { "label": "数组", "value": "array" },
+                      { "label": "对象", "value": "object" }
+                    ]
+                  },
+                  {
+                    "type": "input-text",
+                    "name": "default_value",
+                    "label": "默认值配置",
+                    "required": true,
+                    "placeholder": "如 {\"type\":\"int\",\"value\":0}，type 必须与字段类型一致",
+                    "description": "JSON 格式：{\"type\":\"<与字段类型相同>\",\"value\":<默认值>}。整数只能填整数、浮点数填数字、字符串填\"\", 布尔填 true/false、数组填 []、对象填 {}"
+                  },
+                  { "type": "input-text", "name": "parse_path", "label": "解析路径", "required": true, "maxLength": 500, "placeholder": "同一项目下唯一，如 user.age" },
+                  {
+                    "type": "select",
+                    "name": "status",
+                    "label": "状态",
+                    "required": true,
+                    "options": [
+                      { "label": "生效", "value": 1 },
+                      { "label": "废弃", "value": 2 }
+                    ]
+                  },
+                  { "type": "textarea", "name": "remark", "label": "备注", "maxLength": 2000 }
+                ]
+              }
+            }
+          },
+          {
+            "type": "button",
+            "label": "删除",
+            "level": "danger",
+            "actionType": "ajax",
+            "confirmText": "确定删除该字段吗？",
+            "api": {
+              "method": "post",
+              "url": "/api/v1/fields/delete"
+            },
+            "reload": "fieldCrud"
+          }
+        ]
+      }
+    ],
+    "filter": {
+      "title": "筛选",
+      "body": [
+        { "type": "input-text", "name": "name", "label": "字段名称（模糊）" },
+        {
+          "type": "select",
+          "name": "type",
+          "label": "类型",
+          "clearable": true,
+          "options": [
+            { "label": "整数", "value": "int" },
+            { "label": "浮点数", "value": "float" },
+            { "label": "字符串", "value": "string" },
+            { "label": "布尔值", "value": "bool" },
+            { "label": "数组", "value": "array" },
+            { "label": "对象", "value": "object" }
+          ]
+        },
+        {
+          "type": "select",
+          "name": "status",
+          "label": "状态",
+          "clearable": true,
+          "options": [
+            { "label": "生效", "value": 1 },
+            { "label": "废弃", "value": 2 }
+          ]
+        }
+      ]
+    },
+    "headerToolbar": [
+      "filter",
+      "reload",
+      {
+        "type": "button",
+        "label": "新增字段",
+        "level": "primary",
+        "actionType": "dialog",
+        "dialog": {
+          "title": "新增字段",
+          "size": "lg",
+          "body": {
+            "type": "form",
+            "reload": "fieldCrud",
+            "api": {
+              "method": "post",
+              "url": "/api/v1/fields/add"
+            },
+            "body": [
+              {
+                "type": "select",
+                "name": "project_id",
+                "label": "所属项目",
+                "required": true,
+                "source": {
+                  "method": "get",
+                  "url": "/api/v1/projects/list?page=1&page_size=100",
+                  "adaptor": "return {options:(payload.data.items||[]).map(function(it){return {label:it.name, value:String(it.id)}})};"
+                }
+              },
+              { "type": "input-text", "name": "name", "label": "字段名称", "required": true, "maxLength": 200 },
+              {
+                "type": "select",
+                "name": "type",
+                "label": "字段类型",
+                "required": true,
+                "options": [
+                  { "label": "整数", "value": "int" },
+                  { "label": "浮点数", "value": "float" },
+                  { "label": "字符串", "value": "string" },
+                  { "label": "布尔值", "value": "bool" },
+                  { "label": "数组", "value": "array" },
+                  { "label": "对象", "value": "object" }
+                ]
+              },
+              {
+                "type": "input-text",
+                "name": "default_value",
+                "label": "默认值配置",
+                "required": true,
+                "placeholder": "如 {\"type\":\"int\",\"value\":0}，type 必须与字段类型一致",
+                "description": "JSON 格式：{\"type\":\"<与字段类型相同>\",\"value\":<默认值>}。整数只能填整数、浮点数填数字、字符串填\"\", 布尔填 true/false、数组填 []、对象填 {}"
+              },
+              { "type": "input-text", "name": "parse_path", "label": "解析路径", "required": true, "maxLength": 500, "placeholder": "同一项目下唯一，如 user.age" },
+              {
+                "type": "select",
+                "name": "status",
+                "label": "状态",
+                "placeholder": "请选择状态（默认生效）",
+                "options": [
+                  { "label": "生效", "value": 1 },
+                  { "label": "废弃", "value": 2 }
+                ]
+              },
+              { "type": "textarea", "name": "remark", "label": "备注", "maxLength": 2000 }
+            ]
+          }
+        }
+      }
+    ],
+    "footerToolbar": [
+      "pagination"
+    ]
+  }
+}
