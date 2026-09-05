@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>登录 · Gin Study 后台</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  body { margin: 0; height: 100vh; display: flex; align-items: center; justify-content: center;
+         background: #f5f7fa; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  .card { width: 360px; padding: 32px 28px; background: #fff; border-radius: 8px;
+          box-shadow: 0 2px 12px rgba(0,0,0,.08); }
+  h1 { margin: 0 0 6px; font-size: 20px; }
+  .hint { color: #888; font-size: 12px; margin-bottom: 20px; }
+  label { display: block; font-size: 13px; color: #444; margin: 12px 0 6px; }
+  input { width: 100%; box-sizing: border-box; padding: 9px 11px; font-size: 14px;
+          border: 1px solid #dcdfe6; border-radius: 4px; outline: none; }
+  input:focus { border-color: #409eff; }
+  button { width: 100%; margin-top: 20px; padding: 10px 0; font-size: 14px; color: #fff;
+           background: #409eff; border: none; border-radius: 4px; cursor: pointer; }
+  button:hover { background: #66b1ff; }
+  button:disabled { background: #a0cfff; cursor: not-allowed; }
+  .err { margin-top: 12px; color: #f56c6c; font-size: 13px; min-height: 18px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>登录后台</h1>
+  <div class="hint">Gin Study Project · 管理控制台</div>
+
+  <label>用户名</label>
+  <input id="u" type="text" autocomplete="username" autofocus>
+
+  <label>密码</label>
+  <input id="p" type="password" autocomplete="current-password">
+
+  <button id="b">登录</button>
+  <div class="err" id="e"></div>
+</div>
+
+<script>
+(function () {
+  // 登录页故意不引 amis sdk —— 一个登录表单不值得再加载 2MB JS，
+  // 而且登录页出现在 SDK 加载之前，依赖关系会乱。
+  const $u = document.getElementById('u');
+  const $p = document.getElementById('p');
+  const $b = document.getElementById('b');
+  const $e = document.getElementById('e');
+
+  async function submit() {
+    $b.disabled = true; $e.textContent = '';
+    try {
+      // 走业务登录接口，与 /api/v1/users/login 同套；后续 admin 自有登录接口另起一条
+      const r = await fetch('/api/v1/users/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: $u.value.trim(), password: $p.value }),
+      });
+      const body = await r.json();
+      if (body.code !== 0) {
+        $e.textContent = body.message || '登录失败';
+        return;
+      }
+      // 写两份：amis 默认从 'token' 读不到会触发 401 跳转登录页的死循环，
+      // 所以这边同时塞 'token'（兼容默认）和 'admin_token'（业务约定）两个 key。
+      localStorage.setItem('token', body.data.token);
+      localStorage.setItem('admin_token', body.data.token);
+      localStorage.setItem('admin_username', body.data.user.username);
+      location.replace('/admin/');
+    } catch (err) {
+      $e.textContent = '网络错误：' + err.message;
+    } finally {
+      $b.disabled = false;
+    }
+  }
+
+  $b.addEventListener('click', submit);
+  $p.addEventListener('keydown', function (e) { if (e.key === 'Enter') submit(); });
+})();
+</script>
+</body>
+</html>

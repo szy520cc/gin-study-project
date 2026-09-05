@@ -1,0 +1,38 @@
+{
+  "type": "page",
+  "title": "用户管理",
+  "remark": "用户列表 CRUD。改这里等于改 amis schema，不动后端代码——这是 amis 的核心价值。",
+  "body": [
+    {
+      "type": "crud",
+      "api": {
+        "method": "get",
+        "url": "/api/v1/users",
+        "data": {
+          "page": "${page}",
+          "page_size": "${perPage}"
+        }
+      },
+      "perPage": 10,
+      "defaultParams": { "page": 1, "page_size": 10 },
+      "columns": [
+        { "name": "id",         "label": "ID",        "sortable": true, "width": 80 },
+        { "name": "username",   "label": "用户名",    "searchable": true, "sortable": true },
+        { "name": "email",      "label": "邮箱",      "searchable": true },
+        { "name": "phone",      "label": "手机" },
+        { "name": "avatar",     "label": "头像",      "type": "image", "width": 60 },
+        { "name": "created_at", "label": "注册时间",  "type": "datetime", "sortable": true, "width": 170 }
+      ],
+      "filter": {
+        "title": "筛选",
+        "body": [
+          { "type": "input-text", "name": "username", "label": "用户名（模糊）" },
+          { "type": "input-text", "name": "email",    "label": "邮箱（模糊）" }
+        ]
+      },
+      "headerToolbar": ["filter", "reload", "bulkActions"],
+      "bulkActions": [],
+      "footerToolbar": ["statistics", "pagination"]
+    }
+  ]
+}

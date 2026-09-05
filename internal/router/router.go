@@ -6,10 +6,13 @@ package router
 
 import (
 	"fmt"
+	"io/fs"
+	"net/http"
 
 	"myproject/internal/config"
 	"myproject/internal/controller"
 	"myproject/internal/middleware"
+	"myproject/internal/web"
 
 	"github.com/gin-gonic/gin"
 )
@@ -36,6 +39,7 @@ func Setup(cfg *config.Config) (*gin.Engine, error) {
 	registerSystemRoutes(r)
 	useThrottleMiddleware(r, cfg)
 	registerAPIRoutes(r, cfg)
+	registerAdminUI(r)
 	registerFallbackRoutes(r)
 
 	return r, nil
@@ -149,4 +153,70 @@ func registerOrder(g *gin.RouterGroup, auth gin.HandlerFunc) {
 func registerFallbackRoutes(r *gin.Engine) {
 	r.NoRoute(controller.NotFound)
 	r.NoMethod(controller.MethodNotAllowed)
+}
+
+// registerAdminUI 把后台管理 UI（Amis 单页 + schema 文件）挂在 /admin 下。
+//
+// 设计取舍：后台 UI 跟主 API 共享业务 server（8080），而不是塞进 pkg/admin
+// 的 9090 metrics 端口 —— 后者面向 Prometheus/运维，UI 面向运营/开发，
+// 职责完全不同（CORS、鉴权、访问频率都不同），混在一起两边都不好扩展。
+//
+// 路径规划：
+//   /admin/             → index.html（Amis 容器）
+//   /admin/login        → login.html（独立登录页，跳过 amis 渲染壳）
+//   /admin/static/...   → SDK / 主题 css（go:embed 一并打入二进制）
+//   /admin/pages/*.json → Amis schema 文件（直接吐 JSON）
+func registerAdminUI(r *gin.Engine) {
+	// /admin/login 必须单独存在：amis 的 init 逻辑会执行登录 API，
+	// 在登录前没有 token，登录页不能依赖 amis-renderer 自身的初始化流程，
+	// 也不希望被 "/ -> index.html -> 自动跳 login" 走两次路由。
+	r.GET("/admin/login", func(c *gin.Context) {
+		data, err := web.ReadLogin()
+		if err != nil {
+			c.String(500, "login page missing: %v", err)
+			return
+		}
+		c.Data(200, "text/html; charset=utf-8", data)
+	})
+
+	r.GET("/admin", func(c *gin.Context) { c.Redirect(302, "/admin/") })
+	r.GET("/admin/", func(c *gin.Context) {
+		data, err := web.ReadIndex()
+		if err != nil {
+			c.String(500, "admin index missing: %v", err)
+			return
+		}
+		c.Data(200, "text/html; charset=utf-8", data)
+	})
+
+	// schema JSON 单独走一条路径而不是 StaticFS：
+	// - StaticFS 会把整个目录树都挂上去，未来误丢一个 .json 也会被无脑暴露；
+	//   显式 HandleFunc 走我们自己写过的 handler，至少要过一次内部白名单。
+	r.GET("/admin/pages/*.json", func(c *gin.Context) {
+		name := c.Param(".json") // 含前导点，例如 "/login.json"
+		data, err := web.ReadSchema(name)
+		if err != nil {
+			c.String(404, "schema not found: %s", name)
+			return
+		}
+		c.Data(200, "application/json; charset=utf-8", data)
+	})
+
+	// 静态资源走 StaticFS：sdk.js / css / favicon 等。
+	// 注意要挂在 /admin/static 前缀下，否则 /admin/ 下的 GET 会和 StaticFS 抢路径
+	// —— gin 路由匹配按注册顺序，/admin/ 先注册就先命中。
+	r.StaticFS("/admin/static", http.FS(web.StaticFS()))
+}
+
+// mustSub 是 fs.Sub 的 panic 包装：embed.FS 在编译期已知子目录是否存在，
+// 这里 sub 出错只可能是因为写错目录名，应当在测试期就暴露。
+//
+// 当前路由里没有直接用到 fs.Sub（已抽到 internal/web），保留是给以后
+// 想再切子目录时一个一致的报错样式。
+func mustSub(fsys fs.FS, dir string) fs.FS {
+	sub, err := fs.Sub(fsys, dir)
+	if err != nil {
+		panic(fmt.Sprintf("router: embed sub %q: %v", dir, err))
+	}
+	return sub
 }

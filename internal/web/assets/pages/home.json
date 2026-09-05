@@ -1,0 +1,23 @@
+{
+  "type": "page",
+  "title": "Gin Study · 后台",
+  "remark": "后台首页。amis 用 page 类型做带侧边栏的壳，body 是默认渲染区。",
+  "body": [
+    {
+      "type": "tpl",
+      "tpl": "<div style=\"padding:24px;\"><h2>欢迎，${username}</h2><p>从左侧菜单进入各模块。这一页先做占位——后续可以把「系统信息」「最新告警」放在这里。</p></div>"
+    }
+  ],
+  "aside": [
+    {
+      "type": "nav",
+      "labelField": "label",
+      "children": [
+        { "label": "首页", "icon": "fa fa-home", "to": "/admin/pages/home.json" },
+        { "label": "用户管理", "icon": "fa fa-user", "to": "/admin/pages/users.json" }
+      ]
+    }
+  ],
+  "asideResizor": true,
+  "pullRefresh": false
+}
