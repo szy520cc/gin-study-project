@@ -256,8 +256,8 @@ var envOnlyKeys = []string{
 // 敏感信息（数据库密码、Redis 密码、JWT secret）不应写入被版本管理的配置文件，
 // 生产环境请通过环境变量或密钥管理系统注入。
 func Load(path string, env string) (*Config, error) {
-	// env 白名单化：拼错成 production / prd 时，原实现只是「跳过不存在的文件」，
-	// server.mode 保持默认 debug，IsProd() 为 false ——
+	// env 必须白名单化：拼错成 production / prd 会被直接拒绝，
+	// 否则会退化成默认 dev（server.mode=debug、IsProd()=false），
 	// 生产强校验、pprof 关闭、CORS 白名单、错误细节屏蔽全部静默失效。
 	env = strings.ToLower(strings.TrimSpace(env))
 	if env == "" {

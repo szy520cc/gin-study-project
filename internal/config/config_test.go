@@ -129,8 +129,8 @@ jwt:
 }
 
 // TestLoad_RejectsUnknownEnv 环境名必须白名单化。
-// 拼错成 production 时，原实现只是「跳过不存在的 config.production.yaml」，
-// 于是 mode 保持默认 debug、IsProd() 为 false，整段生产强校验静默不执行。
+// 拼错成 production 会被直接拒绝，否则退化成默认 dev（mode=debug、IsProd()=false），
+// 整段生产强校验静默不执行。
 func TestLoad_RejectsUnknownEnv(t *testing.T) {
 	dir := writeConfig(t, map[string]string{"config.yaml": minimalYAML})
 

@@ -1,13 +1,7 @@
 // Package resource 持有进程级共享资源，业务代码直接取用，不再层层注入。
 //
-// 为什么改成全局单例：原来每加一个模块都要写 repository/service/controller 三个
-// 构造函数、再在 module 包里把它们串起来，四五十行代码没有一行业务逻辑。
-// DB、JWT、Redis 这些东西进程内只有一份、生命周期与进程等长，
-// 用「初始化一次 + 全局读取」表达最直接，也是 uniconf 那类项目跑了多年的做法。
-//
-// 代价是业务层不能再用 mock 替换 DB —— 本项目改走真库集成测试，这个代价已接受。
-//
-// 约束：只有 bootstrap 和 cmd/* 能调 Init/Close，业务代码只读。
+// 不变量：这些资源进程内只有一份、生命周期与进程等长；
+// 只有 bootstrap 和 cmd/* 能调 Set/Close，业务代码只读。
 package resource
 
 import (

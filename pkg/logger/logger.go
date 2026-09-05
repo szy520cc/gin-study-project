@@ -1,11 +1,9 @@
 // Package logger 基于标准库 log/slog 的结构化日志。
 //
-// 相比自研实现，这里做了三件事：
-//  1. 底座换成 slog（Go 1.21 标准库），去掉自造的 JSON 序列化与级别判断；
-//  2. 文件轮转加锁，修复了原实现中多 goroutine 同时跨天轮转导致的 data race
-//     与重复关闭文件句柄的问题；
-//  3. 提供 ctx 贯穿能力：请求入口把 request_id 等字段绑到 logger 上塞进 ctx，
-//     业务层用 logger.C(ctx) 取出，日志天然带上全链路字段。
+// 基于标准库 log/slog（Go 1.21），不再自造 JSON 序列化与级别判断；
+// 文件轮转加锁，避免多 goroutine 同时跨天轮转导致的 data race 与重复关闭文件句柄；
+// 提供 ctx 贯穿能力：请求入口把 request_id 等字段绑到 logger 上塞进 ctx，
+// 业务层用 logger.C(ctx) 取出，日志天然带上全链路字段。
 package logger
 
 import (

@@ -44,9 +44,8 @@ type Options struct {
 
 // NewMySQL 创建 MySQL 连接。
 //
-// 相比原实现的三点变化：
-//  1. GORM 日志级别、慢查询阈值来自配置 —— 原来硬编码 logger.Info，
-//     生产会打印每条 SQL 及其参数（性能损耗 + 用户数据泄露）；
+// 设计要点：
+//  1. GORM 日志级别、慢查询阈值来自配置，避免硬编码 logger.Info 在生产打印每条 SQL 及其参数（性能损耗 + 用户数据泄露）；
 //  2. SQL 日志经 slog 输出，与应用日志同格式、同文件；
 //  3. 连接生命周期可配置，并显式开启 TranslateError 以便识别唯一键冲突。
 func NewMySQL(opt Options) (*gorm.DB, error) {
@@ -56,7 +55,7 @@ func NewMySQL(opt Options) (*gorm.DB, error) {
 	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{
 		Logger: newGormLogger(opt),
 		// 让 gorm 把驱动错误翻译成 ErrDuplicatedKey 等哨兵错误，
-		// repository 层才能把它转换成领域错误
+		// 数据层才能把它转换成领域错误
 		TranslateError: true,
 		NamingStrategy: schema.NamingStrategy{SingularTable: false},
 		// 关闭默认事务可以提升写入性能，但会改变单条写入的语义，这里保持默认

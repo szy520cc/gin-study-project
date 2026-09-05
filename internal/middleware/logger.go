@@ -58,8 +58,7 @@ func LoggerWithConfig(cfg LoggerConfig) gin.HandlerFunc {
 		var requestBody []byte
 		var blw *bodyWriter
 
-		// 仅在需要时才读请求体、包装响应体。
-		// 原实现无条件缓冲整个响应，大响应会双倍占用内存，且破坏流式输出。
+		// 仅在需要时才读请求体、包装响应体，避免大响应双倍占用内存、破坏流式输出。
 		if cfg.LogBody {
 			if c.Request.Body != nil {
 				// 只截断「记进日志的那一份」，Body 本身必须完整交给 controller：

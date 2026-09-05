@@ -11,10 +11,9 @@ import (
 
 // Cors 跨域中间件。
 //
-// 原实现把 AllowOrigins 写死成 ["*"] 且同时开启 AllowCredentials，
-// 这是浏览器明确禁止的组合（Access-Control-Allow-Origin:* 不能与
-// Access-Control-Allow-Credentials:true 并存），带 cookie 的跨域请求会被拒绝。
-// 现在改为从配置读取白名单，并在检测到该冲突时自动降级，避免线上出现静默失效。
+// 禁止 AllowOrigins=["*"] 与 AllowCredentials=true 并存：
+// 浏览器规定 Access-Control-Allow-Origin:* 不能与 Access-Control-Allow-Credentials:true 同存，
+// 否则带 cookie 的跨域请求会被拒绝。这里从配置读取白名单，检测到冲突时自动降级，避免静默失效。
 func Cors(cfg config.CORSConfig) gin.HandlerFunc {
 	allowAll := false
 	origins := make([]string, 0, len(cfg.AllowOrigins))

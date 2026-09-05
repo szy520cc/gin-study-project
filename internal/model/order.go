@@ -70,8 +70,7 @@ type UpdateOrderStatusRequest struct {
 }
 
 // OrderListRequest 订单列表请求
-// Status 用指针：原实现是 int8，无法区分「不筛选」和「筛选待支付(0)」，
-// 导致待支付订单永远筛不出来。
+// Status 用指针：以区分「不筛选」与「筛选待支付(0)」——否则待支付订单永远筛不出来。
 type OrderListRequest struct {
 	Page     int   `form:"page" binding:"omitempty,min=1"`
 	PageSize int   `form:"page_size" binding:"omitempty,min=1,max=100"`

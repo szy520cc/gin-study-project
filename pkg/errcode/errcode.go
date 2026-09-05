@@ -1,8 +1,8 @@
 // Package errcode 定义业务错误码体系。
 //
-// 相比原实现补了三件事：
-//  1. 支持 Unwrap/Is，可以用 fmt.Errorf("...: %w", err) 包装底层错误后仍能判断类型；
-//  2. WithCause 保留底层错误用于日志排查，但不会返回给客户端；
+// 设计要点：
+//  1. 支持 Unwrap/Is，可用 fmt.Errorf("...: %w", err) 包装底层错误后仍能判断类型；
+//  2. WithCause 保留底层错误用于日志排查，但不返回给客户端；
 //  3. Details 可被 response 层读取，非生产环境返回给调用方，便于联调。
 package errcode
 

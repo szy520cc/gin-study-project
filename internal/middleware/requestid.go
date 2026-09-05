@@ -68,8 +68,7 @@ func sanitizeRequestID(id string) string {
 	return id
 }
 
-// 不提供 GetRequestID(c) 包装：原来那个函数零调用，
-// 而 c.GetString(RequestIDKey) 本身就是一行。
+// 不提供 GetRequestID(c) 包装：c.GetString(RequestIDKey) 本身就是一行，
 // 需要在 controller 里拿 request_id 时直接用 RequestIDKey。
 
 func newRequestID() string {

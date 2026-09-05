@@ -230,6 +230,8 @@ func (app *App) Run() error {
 	go func() {
 		<-forced
 		logger.Warn("second shutdown signal received, exiting immediately")
+		// os.Exit 会跳过 main 的 defer app.Close()，这里先尽量释放 DB/Redis 连接
+		app.Close()
 		os.Exit(1)
 	}()
 

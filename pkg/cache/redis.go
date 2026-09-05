@@ -53,9 +53,7 @@ func (r *RedisClient) Ping(ctx context.Context) error {
 // Client 返回底层 go-redis 客户端。
 //
 // 本包只保留连接管理（NewRedis/Close）与探活（Ping），不再包装任何命令：
-// 此前的 Get/Set/Del 以及更早的 Exists/Expire/Incr/HGet/HSet/HGetAll
-// 全部零调用 —— 一层只改了签名的透传，既没加行为也没加约束，
-// 却要求每次用新命令都先来这里补一个方法。
+// 一层只改了签名的透传，既没加行为也没加约束，却要求每次用新命令都先来这里补一个方法。
 // 业务需要用 Redis 时直接拿这个客户端调 go-redis（命令齐全、文档现成），
 // 真出现「多处重复的复合操作」再往上抽。
 func (r *RedisClient) Client() *redis.Client {

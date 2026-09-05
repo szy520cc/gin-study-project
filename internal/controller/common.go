@@ -56,11 +56,11 @@ func pathID(c *gin.Context, name string) (uint64, bool) {
 
 // bindJSON 绑定并校验 JSON 请求体。返回 false 时响应已写出，调用方直接 return。
 //
-// 收敛三件此前散落在每个接口函数里的事：
+// 收敛三件原本散落在每个接口函数里的事：
 //  1. 重复的 ShouldBindJSON + ErrInvalidParams 样板；
 //  2. 请求体超限识别 —— MaxBytesReader 触发时应返回 413 而不是 400；
-//  3. 校验失败的错误信息翻译 —— 原来把 go-playground 的英文原串直接吐给客户端，
-//     既没法用，还暴露了内部结构体名（如 UserRegisterRequest.Email）。
+//  3. 校验失败的错误信息翻译 —— 直接吐 go-playground 的英文原串既没法用，
+//     还会暴露内部结构体名（如 UserRegisterRequest.Email）。
 func bindJSON[T any](c *gin.Context, req *T) bool {
 	if err := c.ShouldBindJSON(req); err != nil {
 		response.Error(c, bindError(err))

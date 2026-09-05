@@ -72,7 +72,7 @@ func SuccessList(c *gin.Context, list interface{}, total int64, page, pageSize i
 }
 
 // Error 错误响应。
-// 5xx 一律落日志（原实现里 *errcode.Error 分支完全不记录，内部错误会静默丢失）。
+// 5xx 一律落日志：避免内部错误静默丢失。
 func Error(c *gin.Context, err error) {
 	if err == nil {
 		Success(c, nil)
