@@ -96,9 +96,6 @@ func (r *Registry) SetExposeErrors(v bool) {
 // 使 /readyz 返回 503，负载均衡把本实例从后端列表里摘掉。
 func (r *Registry) StartDraining() { r.draining.Store(true) }
 
-// IsDraining 是否处于摘流阶段
-func (r *Registry) IsDraining() bool { return r.draining.Load() }
-
 // Check 探测所有依赖。结果在 cacheTTL 内复用，避免探针被当成放大器。
 func (r *Registry) Check(ctx context.Context) Report {
 	// 摘流期间不必再探测下游：结论已经确定，且此时下游可能已被关闭

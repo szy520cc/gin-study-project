@@ -115,7 +115,6 @@ func From(err error) *Error {
 
 // 通用错误
 var (
-	ErrSuccess       = New(0, "success", http.StatusOK)
 	ErrInternal      = New(10001, "内部错误", http.StatusInternalServerError)
 	ErrInvalidParams = New(10002, "参数错误", http.StatusBadRequest)
 	ErrNotFound      = New(10003, "资源不存在", http.StatusNotFound)

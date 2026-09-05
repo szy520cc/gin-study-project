@@ -180,10 +180,3 @@ func Warn(msg string, fields ...map[string]interface{}) {
 func Error(msg string, fields ...map[string]interface{}) {
 	defaultLogger.Error(msg, fieldsToArgs(fields)...)
 }
-
-// Fatal 记录后退出进程。注意会跳过 defer，调用前请确保资源已释放。
-func Fatal(msg string, fields ...map[string]interface{}) {
-	defaultLogger.Error(msg, fieldsToArgs(fields)...)
-	_ = Close()
-	os.Exit(1)
-}

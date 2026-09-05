@@ -132,13 +132,16 @@ func (w *rotateWriter) cleanupLocked() {
 
 	active := filepath.Join(w.dir, currentLogName(w.hour))
 	cutoff := time.Now().Add(-w.ret.maxAge)
-	for i, path := range entries {
+	// kept 只数「保留的历史文件」：不能用 entries 的下标代替，
+	// 当前活动文件也占一个下标，用下标计数会少保留一个历史文件。
+	kept := 0
+	for _, path := range entries {
 		// 永远不删当前正在写入的小时文件
 		if path == active {
 			continue
 		}
 		expired := false
-		if w.ret.maxBackups > 0 && i >= w.ret.maxBackups {
+		if w.ret.maxBackups > 0 && kept >= w.ret.maxBackups {
 			expired = true
 		}
 		if !expired && w.ret.maxAge > 0 {
@@ -150,7 +153,9 @@ func (w *rotateWriter) cleanupLocked() {
 			if err := os.Remove(path); err != nil {
 				fmt.Fprintf(os.Stderr, "清理日志文件失败: %v\n", err)
 			}
+			continue
 		}
+		kept++
 	}
 }
 

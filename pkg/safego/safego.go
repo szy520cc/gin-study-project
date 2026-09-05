@@ -22,12 +22,6 @@ func Go(ctx context.Context, name string, fn func()) {
 	}()
 }
 
-// Run 同步执行并保护 panic，用于已经在 goroutine 内部的场景
-func Run(ctx context.Context, name string, fn func()) {
-	defer recoverPanic(ctx, name)
-	fn()
-}
-
 // RunE 同步执行并把 panic 转换成 error 返回。
 // 用于「panic 不该终止进程，但调用方需要知道这次失败了」的场景，
 // 例如健康检查：探测实现 panic 时必须报告为不健康，而不是静默当成健康。

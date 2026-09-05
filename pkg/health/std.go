@@ -28,6 +28,3 @@ func SetExposeErrors(v bool) { std.SetExposeErrors(v) }
 
 // StartDraining 标记默认注册表进入摘流阶段
 func StartDraining() { std.StartDraining() }
-
-// IsDraining 默认注册表是否处于摘流阶段
-func IsDraining() bool { return std.IsDraining() }

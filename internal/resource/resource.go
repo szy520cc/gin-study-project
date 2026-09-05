@@ -65,12 +65,6 @@ func DB(ctx context.Context) *gorm.DB {
 	return db.WithContext(ctx)
 }
 
-// RawDB 返回不带 ctx 的原始连接，仅供迁移、健康探测这类基础设施使用
-func RawDB() *gorm.DB {
-	mustDB()
-	return db
-}
-
 func mustDB() {
 	if db == nil {
 		panic("resource: 数据库未装配（正常由 bootstrap.Init 调用 resource.Set 完成）")
