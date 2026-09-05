@@ -6,6 +6,7 @@ package transaction
 
 import (
 	"context"
+	"fmt"
 	"sync/atomic"
 
 	"gorm.io/gorm"
@@ -43,7 +44,14 @@ func Do(ctx context.Context, fn func(ctx context.Context) error) error {
 	if tx, ok := TxFrom(ctx); ok {
 		return run(ctx, tx.WithContext(ctx), fn)
 	}
-	return run(ctx, root.Load().WithContext(ctx), fn)
+
+	// 根连接未装配时返回错误而不是让 nil 流下去：nil *gorm.DB 会在 gorm 的
+	// Session() 里解引用空指针，堆栈落在 gorm 内部，看不出是谁忘了装配。
+	db := root.Load()
+	if db == nil {
+		return fmt.Errorf("transaction: 根连接未装配（正常由 bootstrap.Init 完成）")
+	}
+	return run(ctx, db.WithContext(ctx), fn)
 }
 
 func run(ctx context.Context, db *gorm.DB, fn func(ctx context.Context) error) error {

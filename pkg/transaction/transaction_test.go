@@ -35,3 +35,26 @@ func TestTxFrom_EmptyContext(t *testing.T) {
 		t.Error("nil 句柄不应判为事务中")
 	}
 }
+
+// TestDo_RootNotInitialized 根连接未装配时必须返回可读错误，而不是让 nil
+// 流进 gorm 的 Session() 里解引用空指针 —— 那样堆栈落在 gorm 内部，
+// 看不出是「谁忘了调 bootstrap.Init」。
+//
+// 本用例会临时清空包级 root，跑完恢复；因为要独占这个全局状态，不能并行。
+func TestDo_RootNotInitialized(t *testing.T) {
+	saved := root.Load()
+	root.Store(nil)
+	t.Cleanup(func() { root.Store(saved) })
+
+	called := false
+	err := Do(context.Background(), func(ctx context.Context) error {
+		called = true
+		return nil
+	})
+	if err == nil {
+		t.Fatal("根连接未装配时应返回 error")
+	}
+	if called {
+		t.Error("取不到连接时闭包不该被执行")
+	}
+}

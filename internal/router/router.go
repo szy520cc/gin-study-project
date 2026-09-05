@@ -130,7 +130,6 @@ func registerUser(g *gin.RouterGroup, auth, authLimit gin.HandlerFunc) {
 		users.PUT("/profile", controller.UpdateProfile)
 		users.GET("", controller.ListUsers)
 		users.GET("/:id", controller.GetUser)
-		users.DELETE("/:id", middleware.SelfOnly("id"), controller.DeleteUser)
 	}
 }
 
