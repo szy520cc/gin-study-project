@@ -1,0 +1,195 @@
+{
+  "type": "page",
+  "title": "配置管理",
+  "body": {
+    "type": "crud",
+    "name": "configCrud",
+    "api": {
+      "method": "get",
+      "url": "/api/v1/configs/list"
+    },
+    "perPage": 10,
+    "pageField": "page",
+    "perPageField": "page_size",
+    "columns": [
+      { "name": "id", "label": "ID", "width": 70 },
+      { "name": "config_pack_id", "label": "配置包", "width": 90 },
+      { "name": "name", "label": "配置名称" },
+      { "name": "logo", "label": "配置标识", "width": 130 },
+      { "name": "type", "label": "类型", "width": 90 },
+      { "name": "version", "label": "版本", "width": 90 },
+      { "name": "status_text", "label": "状态", "width": 80 },
+      { "name": "is_latest_text", "label": "最新", "width": 70 },
+      { "name": "updated_at_text", "label": "更新时间", "width": 170 },
+      {
+        "type": "operation",
+        "label": "操作",
+        "width": 150,
+        "buttons": [
+          {
+            "type": "button",
+            "label": "编辑",
+            "actionType": "dialog",
+            "dialog": {
+              "title": "编辑配置",
+              "size": "lg",
+              "body": {
+                "type": "form",
+                "reload": "configCrud",
+                "initApi": {
+                  "method": "get",
+                  "url": "/api/v1/configs/detail?id=${id}"
+                },
+                "api": {
+                  "method": "post",
+                  "url": "/api/v1/configs/update"
+                },
+                "body": [
+                  { "type": "input-text", "name": "project_id", "label": "所属项目", "disabled": true },
+                  { "type": "input-number", "name": "config_pack_id", "label": "配置包ID", "disabled": true },
+                  { "type": "input-text", "name": "logo", "label": "配置标识", "disabled": true, "description": "标识与版本创建后不可修改" },
+                  { "type": "input-text", "name": "version", "label": "版本", "disabled": true },
+                  { "type": "input-text", "name": "name", "label": "配置名称", "required": true, "maxLength": 200 },
+                  { "type": "input-text", "name": "type", "label": "配置类型", "required": true, "maxLength": 50 },
+                  {
+                    "type": "select",
+                    "name": "status",
+                    "label": "状态",
+                    "required": true,
+                    "options": [
+                      { "label": "待审核", "value": 0 },
+                      { "label": "生效", "value": 1 },
+                      { "label": "下线", "value": 2 }
+                    ]
+                  },
+                  {
+                    "type": "select",
+                    "name": "is_latest",
+                    "label": "是否最新",
+                    "required": true,
+                    "options": [
+                      { "label": "是", "value": 1 },
+                      { "label": "否", "value": 2 }
+                    ]
+                  },
+                  { "type": "input-number", "name": "cut_num", "label": "切流量级", "step": 0.1, "min": 0 },
+                  { "type": "input-number", "name": "cut_at", "label": "切流时间(Unix秒)", "min": 0 },
+                  { "type": "input-text", "name": "cut_version", "label": "切流版本", "maxLength": 50 },
+                  { "type": "textarea", "name": "remark", "label": "备注", "maxLength": 2000 }
+                ]
+              }
+            }
+          },
+          {
+            "type": "button",
+            "label": "删除",
+            "level": "danger",
+            "actionType": "ajax",
+            "confirmText": "确定删除该配置吗？",
+            "api": {
+              "method": "post",
+              "url": "/api/v1/configs/delete"
+            },
+            "reload": "configCrud"
+          }
+        ]
+      }
+    ],
+    "filter": {
+      "title": "筛选",
+      "body": [
+        { "type": "input-text", "name": "name", "label": "配置名称（模糊）" },
+        { "type": "input-text", "name": "type", "label": "配置类型" },
+        {
+          "type": "select",
+          "name": "status",
+          "label": "状态",
+          "clearable": true,
+          "options": [
+            { "label": "待审核", "value": 0 },
+            { "label": "生效", "value": 1 },
+            { "label": "下线", "value": 2 }
+          ]
+        }
+      ]
+    },
+    "headerToolbar": [
+      "filter",
+      "reload",
+      {
+        "type": "button",
+        "label": "新增配置",
+        "level": "primary",
+        "actionType": "dialog",
+        "dialog": {
+          "title": "新增配置",
+          "size": "lg",
+          "body": {
+            "type": "form",
+            "reload": "configCrud",
+            "api": {
+              "method": "post",
+              "url": "/api/v1/configs/add"
+            },
+            "body": [
+              {
+                "type": "select",
+                "name": "project_id",
+                "label": "所属项目",
+                "required": true,
+                "source": {
+                  "method": "get",
+                  "url": "/api/v1/projects/list?page=1&page_size=100",
+                  "adaptor": "return {options:(payload.data.items||[]).map(function(it){return {label:it.name, value:String(it.id)}})};"
+                }
+              },
+              {
+                "type": "select",
+                "name": "config_pack_id",
+                "label": "所属配置包",
+                "required": true,
+                "source": {
+                  "method": "get",
+                  "url": "/api/v1/config-packs/list?page=1&page_size=100",
+                  "adaptor": "return {options:(payload.data.items||[]).map(function(it){return {label:it.name+'('+it.project_id+')', value:it.id}})};"
+                }
+              },
+              { "type": "input-text", "name": "name", "label": "配置名称", "required": true, "maxLength": 200 },
+              { "type": "input-text", "name": "logo", "label": "配置标识", "required": true, "maxLength": 200, "placeholder": "与版本一起唯一" },
+              { "type": "input-text", "name": "type", "label": "配置类型", "required": true, "maxLength": 50, "placeholder": "如 json / text / abtest" },
+              { "type": "input-text", "name": "version", "label": "版本", "required": true, "maxLength": 50, "placeholder": "如 v1.0.0" },
+              {
+                "type": "select",
+                "name": "status",
+                "label": "状态",
+                "placeholder": "默认待审核",
+                "options": [
+                  { "label": "待审核", "value": 0 },
+                  { "label": "生效", "value": 1 },
+                  { "label": "下线", "value": 2 }
+                ]
+              },
+              {
+                "type": "select",
+                "name": "is_latest",
+                "label": "是否最新",
+                "placeholder": "默认是",
+                "options": [
+                  { "label": "是", "value": 1 },
+                  { "label": "否", "value": 2 }
+                ]
+              },
+              { "type": "input-number", "name": "cut_num", "label": "切流量级", "step": 0.1, "min": 0 },
+              { "type": "input-number", "name": "cut_at", "label": "切流时间(Unix秒)", "min": 0 },
+              { "type": "input-text", "name": "cut_version", "label": "切流版本", "maxLength": 50 },
+              { "type": "textarea", "name": "remark", "label": "备注", "maxLength": 2000 }
+            ]
+          }
+        }
+      }
+    ],
+    "footerToolbar": [
+      "pagination"
+    ]
+  }
+}

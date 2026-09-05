@@ -174,3 +174,15 @@ var (
 	ErrFieldDefaultValueInvalid = New(60004, "字段默认值不合法", http.StatusBadRequest)
 	ErrFieldDefaultTypeMismatch = New(60005, "字段默认值类型与字段类型不一致", http.StatusBadRequest)
 )
+
+// 配置包相关错误
+var (
+	ErrConfigPackNotFound   = New(70001, "配置包不存在", http.StatusNotFound)
+	ErrConfigPackLogoExists = New(70002, "配置包标识已存在", http.StatusBadRequest)
+)
+
+// 配置数据相关错误
+var (
+	ErrConfigNotFound         = New(80001, "配置不存在", http.StatusNotFound)
+	ErrConfigLogoVersionExists = New(80002, "配置版本已存在", http.StatusBadRequest)
+)

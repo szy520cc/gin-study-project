@@ -123,6 +123,8 @@ func registerAPIRoutes(r *gin.Engine, cfg *config.Config) {
 	registerOrder(v1, auth)
 	registerProject(v1, auth)
 	registerField(v1, auth)
+	registerConfigPack(v1, auth)
+	registerConfig(v1, auth)
 }
 
 // registerUser 用户模块路由
@@ -179,6 +181,30 @@ func registerField(g *gin.RouterGroup, auth gin.HandlerFunc) {
 		fields.POST("/delete", controller.DeleteField)
 		fields.GET("/list", controller.ListFields)
 		fields.GET("/detail", controller.GetField)
+	}
+}
+
+// registerConfigPack 配置包管理模块路由（动作式路由，见 registerProject 注释）
+func registerConfigPack(g *gin.RouterGroup, auth gin.HandlerFunc) {
+	cps := g.Group("/config-packs", auth)
+	{
+		cps.POST("/add", controller.CreateConfigPack)
+		cps.POST("/update", controller.UpdateConfigPack)
+		cps.POST("/delete", controller.DeleteConfigPack)
+		cps.GET("/list", controller.ListConfigPacks)
+		cps.GET("/detail", controller.GetConfigPack)
+	}
+}
+
+// registerConfig 配置数据模块路由（动作式路由，见 registerProject 注释）
+func registerConfig(g *gin.RouterGroup, auth gin.HandlerFunc) {
+	configs := g.Group("/configs", auth)
+	{
+		configs.POST("/add", controller.CreateConfig)
+		configs.POST("/update", controller.UpdateConfig)
+		configs.POST("/delete", controller.DeleteConfig)
+		configs.GET("/list", controller.ListConfigs)
+		configs.GET("/detail", controller.GetConfig)
 	}
 }
 

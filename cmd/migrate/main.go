@@ -70,6 +70,8 @@ func main() {
 		&model.OrderStatusLog{},
 		&model.Project{},
 		&model.Field{},
+		&model.ConfigPack{},
+		&model.Config{},
 	}
 
 	if *drop {

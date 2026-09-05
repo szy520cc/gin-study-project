@@ -17,7 +17,9 @@
       section: '项目管理',
       items: [
         { title: '项目管理', key: 'project.json', icon: 'fa-diagram-project' },
-        { title: '字段管理', key: 'field.json', icon: 'fa-list-check' }
+        { title: '字段管理', key: 'field.json', icon: 'fa-list-check' },
+        { title: '配置包管理', key: 'config-pack.json', icon: 'fa-box-archive' },
+        { title: '配置管理', key: 'config.json', icon: 'fa-file-code' }
       ]
     },
     {

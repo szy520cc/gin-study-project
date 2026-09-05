@@ -1,0 +1,167 @@
+{
+  "type": "page",
+  "title": "配置包管理",
+  "body": {
+    "type": "crud",
+    "name": "configPackCrud",
+    "api": {
+      "method": "get",
+      "url": "/api/v1/config-packs/list"
+    },
+    "perPage": 10,
+    "pageField": "page",
+    "perPageField": "page_size",
+    "columns": [
+      { "name": "id", "label": "ID", "width": 70 },
+      { "name": "project_id", "label": "所属项目", "width": 90 },
+      { "name": "name", "label": "配置包名称" },
+      { "name": "logo", "label": "配置包标识", "width": 150 },
+      { "name": "status_text", "label": "状态", "width": 90 },
+      { "name": "updated_user", "label": "最后编辑", "width": 100 },
+      { "name": "updated_at_text", "label": "更新时间", "width": 170 },
+      {
+        "type": "operation",
+        "label": "操作",
+        "width": 150,
+        "buttons": [
+          {
+            "type": "button",
+            "label": "编辑",
+            "actionType": "dialog",
+            "dialog": {
+              "title": "编辑配置包",
+              "size": "md",
+              "body": {
+                "type": "form",
+                "reload": "configPackCrud",
+                "initApi": {
+                  "method": "get",
+                  "url": "/api/v1/config-packs/detail?id=${id}"
+                },
+                "api": {
+                  "method": "post",
+                  "url": "/api/v1/config-packs/update"
+                },
+                "body": [
+                  {
+                    "type": "select",
+                    "name": "project_id",
+                    "label": "所属项目",
+                    "required": true,
+                    "disabled": true,
+                    "source": {
+                      "method": "get",
+                      "url": "/api/v1/projects/list?page=1&page_size=100",
+                      "adaptor": "return {options:(payload.data.items||[]).map(function(it){return {label:it.name, value:String(it.id)}})};"
+                    }
+                  },
+                  { "type": "input-text", "name": "name", "label": "配置包名称", "required": true, "maxLength": 200 },
+                  {
+                    "type": "input-text",
+                    "name": "logo",
+                    "label": "配置包标识",
+                    "disabled": true,
+                    "description": "配置包标识创建后不允许修改"
+                  },
+                  {
+                    "type": "select",
+                    "name": "status",
+                    "label": "状态",
+                    "required": true,
+                    "options": [
+                      { "label": "待审核", "value": 0 },
+                      { "label": "生效", "value": 1 },
+                      { "label": "下线", "value": 2 }
+                    ]
+                  },
+                  { "type": "textarea", "name": "remark", "label": "备注", "maxLength": 2000 }
+                ]
+              }
+            }
+          },
+          {
+            "type": "button",
+            "label": "删除",
+            "level": "danger",
+            "actionType": "ajax",
+            "confirmText": "确定删除该配置包吗？",
+            "api": {
+              "method": "post",
+              "url": "/api/v1/config-packs/delete"
+            },
+            "reload": "configPackCrud"
+          }
+        ]
+      }
+    ],
+    "filter": {
+      "title": "筛选",
+      "body": [
+        { "type": "input-text", "name": "name", "label": "配置包名称（模糊）" },
+        {
+          "type": "select",
+          "name": "status",
+          "label": "状态",
+          "clearable": true,
+          "options": [
+            { "label": "待审核", "value": 0 },
+            { "label": "生效", "value": 1 },
+            { "label": "下线", "value": 2 }
+          ]
+        }
+      ]
+    },
+    "headerToolbar": [
+      "filter",
+      "reload",
+      {
+        "type": "button",
+        "label": "新增配置包",
+        "level": "primary",
+        "actionType": "dialog",
+        "dialog": {
+          "title": "新增配置包",
+          "size": "md",
+          "body": {
+            "type": "form",
+            "reload": "configPackCrud",
+            "api": {
+              "method": "post",
+              "url": "/api/v1/config-packs/add"
+            },
+            "body": [
+              {
+                "type": "select",
+                "name": "project_id",
+                "label": "所属项目",
+                "required": true,
+                "source": {
+                  "method": "get",
+                  "url": "/api/v1/projects/list?page=1&page_size=100",
+                  "adaptor": "return {options:(payload.data.items||[]).map(function(it){return {label:it.name, value:String(it.id)}})};"
+                }
+              },
+              { "type": "input-text", "name": "name", "label": "配置包名称", "required": true, "maxLength": 200 },
+              { "type": "input-text", "name": "logo", "label": "配置包标识", "required": true, "maxLength": 200, "placeholder": "同一项目下唯一，创建后不可修改" },
+              {
+                "type": "select",
+                "name": "status",
+                "label": "状态",
+                "placeholder": "默认待审核",
+                "options": [
+                  { "label": "待审核", "value": 0 },
+                  { "label": "生效", "value": 1 },
+                  { "label": "下线", "value": 2 }
+                ]
+              },
+              { "type": "textarea", "name": "remark", "label": "备注", "maxLength": 2000 }
+            ]
+          }
+        }
+      }
+    ],
+    "footerToolbar": [
+      "pagination"
+    ]
+  }
+}
