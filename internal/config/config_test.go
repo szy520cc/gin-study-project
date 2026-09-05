@@ -26,11 +26,10 @@ func TestMain(m *testing.M) {
 }
 
 const minimalYAML = `
-databases:
-  default:
-    host: "127.0.0.1"
-    username: "root"
-    dbname: "gin"
+database:
+  host: "127.0.0.1"
+  username: "root"
+  dbname: "gin"
 jwt:
   secret: "0123456789abcdef0123456789abcdef"
 `
@@ -83,7 +82,7 @@ func TestLoad_AppliesDefaults(t *testing.T) {
 func TestLoad_EnvOverridesNestedKey(t *testing.T) {
 	dir := writeConfig(t, map[string]string{"config.yaml": minimalYAML})
 
-	t.Setenv("APP_DATABASES_DEFAULT_PASSWORD", "from-env")
+	t.Setenv("APP_DATABASE_PASSWORD", "from-env")
 	t.Setenv("APP_SERVER_ADDR", ":9999")
 
 	cfg, err := Load(dir, "dev")
@@ -91,8 +90,8 @@ func TestLoad_EnvOverridesNestedKey(t *testing.T) {
 		t.Fatalf("加载失败: %v", err)
 	}
 
-	if cfg.DefaultDatabase().Password != "from-env" {
-		t.Errorf("databases.default.password 应被环境变量覆盖，实际 %q", cfg.DefaultDatabase().Password)
+	if cfg.Database.Password != "from-env" {
+		t.Errorf("database.password 应被环境变量覆盖，实际 %q", cfg.Database.Password)
 	}
 	if cfg.Server.Addr != ":9999" {
 		t.Errorf("server.addr 应被环境变量覆盖，实际 %q", cfg.Server.Addr)
@@ -102,12 +101,11 @@ func TestLoad_EnvOverridesNestedKey(t *testing.T) {
 func TestLoad_EnvConfigOverridesBase(t *testing.T) {
 	dir := writeConfig(t, map[string]string{
 		"config.yaml": `
-databases:
-  default:
-    host: "127.0.0.1"
-    username: "root"
-    password: "p"
-    dbname: "gin"
+database:
+  host: "127.0.0.1"
+  username: "root"
+  password: "p"
+  dbname: "gin"
 jwt:
   secret: "0123456789abcdef0123456789abcdef"
 `,
@@ -158,26 +156,26 @@ func TestLoad_ProdRequiresEnvFile(t *testing.T) {
 // 一旦随 configs/ 目录被同步到生产机，会静默把库地址和 secret 换成开发的那套。
 func TestLoad_SkipsLocalOverrideInProd(t *testing.T) {
 	files := map[string]string{
-		"config.yaml": "databases:\n  default:\n    host: \"prod-host\"\n    username: u\n    dbname: d\n    password: p\n" +
+		"config.yaml": "database:\n  host: \"prod-host\"\n  username: u\n  dbname: d\n  password: p\n" +
 			"jwt:\n  secret: \"0123456789abcdef0123456789abcdef\"\n",
 		"config.prod.yaml":  "server:\n  mode: \"release\"\ncors:\n  allow_origins: [\"https://app.example.com\"]\n",
-		"config.local.yaml": "databases:\n  default:\n    host: \"local-host\"\n",
+		"config.local.yaml": "database:\n  host: \"local-host\"\n",
 	}
 
 	prod, err := Load(writeConfig(t, files), "prod")
 	if err != nil {
 		t.Fatalf("加载失败: %v", err)
 	}
-	if prod.DefaultDatabase().Host != "prod-host" {
-		t.Errorf("生产不应加载 config.local.yaml，实际 host=%q", prod.DefaultDatabase().Host)
+	if prod.Database.Host != "prod-host" {
+		t.Errorf("生产不应加载 config.local.yaml，实际 host=%q", prod.Database.Host)
 	}
 
 	dev, err := Load(writeConfig(t, files), "dev")
 	if err != nil {
 		t.Fatalf("加载失败: %v", err)
 	}
-	if dev.DefaultDatabase().Host != "local-host" {
-		t.Errorf("非生产应加载 config.local.yaml，实际 host=%q", dev.DefaultDatabase().Host)
+	if dev.Database.Host != "local-host" {
+		t.Errorf("非生产应加载 config.local.yaml，实际 host=%q", dev.Database.Host)
 	}
 }
 
@@ -187,16 +185,16 @@ func TestValidate_RejectsBadConfig(t *testing.T) {
 		want string
 	}{
 		"jwt secret 为空": {
-			yaml: "databases:\n  default:\n    host: h\n    username: u\n    dbname: d\n",
+			yaml: "database:\n  host: h\n  username: u\n  dbname: d\n",
 			want: "jwt.secret",
 		},
 		"jwt secret 是占位符": {
-			yaml: "databases:\n  default:\n    host: h\n    username: u\n    dbname: d\njwt:\n  secret: \"your-secret-key-here\"\n",
+			yaml: "database:\n  host: h\n  username: u\n  dbname: d\njwt:\n  secret: \"your-secret-key-here\"\n",
 			want: "占位符",
 		},
 		"数据库信息缺失": {
 			yaml: "jwt:\n  secret: \"0123456789abcdef0123456789abcdef\"\n",
-			want: "databases",
+			want: "database.host",
 		},
 		"server.mode 非法": {
 			yaml: minimalYAML + "server:\n  mode: \"production\"\n",
@@ -227,7 +225,7 @@ func TestValidate_RejectsBadConfig(t *testing.T) {
 // 用占位符或弱密钥跑在生产，等于认证形同虚设 —— 这类问题必须在启动时拦住，
 // 而不是推迟到线上被人发现。
 func TestValidate_ProdRules(t *testing.T) {
-	base := "databases:\n  default:\n    host: h\n    username: u\n    dbname: d\n    password: p\nserver:\n  mode: \"release\"\n"
+	base := "database:\n  host: h\n  username: u\n  dbname: d\n  password: p\nserver:\n  mode: \"release\"\n"
 
 	t.Run("生产 jwt secret 长度不足", func(t *testing.T) {
 		dir := writeConfig(t, map[string]string{
@@ -242,7 +240,7 @@ func TestValidate_ProdRules(t *testing.T) {
 
 	t.Run("生产数据库密码为空", func(t *testing.T) {
 		dir := writeConfig(t, map[string]string{
-			"config.yaml": "databases:\n  default:\n    host: h\n    username: u\n    dbname: d\nserver:\n  mode: \"release\"\n" +
+			"config.yaml": "database:\n  host: h\n  username: u\n  dbname: d\nserver:\n  mode: \"release\"\n" +
 				"jwt:\n  secret: \"0123456789abcdef0123456789abcdef\"\n",
 			"config.prod.yaml": "# 生产环境必须存在这个文件\n",
 		})
@@ -275,59 +273,4 @@ func TestValidate_ProdRules(t *testing.T) {
 			t.Errorf("生产 pprof 绑非回环应被拦住，实际: %v", err)
 		}
 	})
-}
-
-// TestLoad_MultipleDatabases 验证多数据源：databases/redises 是命名 map，
-// default 主库与额外库并存，且每个库漏写的字段都补上了默认值。
-func TestLoad_MultipleDatabases(t *testing.T) {
-	dir := writeConfig(t, map[string]string{"config.yaml": `
-databases:
-  default:
-    host: "127.0.0.1"
-    username: "root"
-    dbname: "gin"
-  analytics:
-    host: "10.0.0.2"
-    username: "ro"
-    dbname: "analytics"
-redises:
-  default:
-    host: "127.0.0.1"
-  cache:
-    host: "10.0.0.3"
-jwt:
-  secret: "0123456789abcdef0123456789abcdef"
-`})
-
-	cfg, err := Load(dir, "dev")
-	if err != nil {
-		t.Fatalf("加载失败: %v", err)
-	}
-
-	if len(cfg.Databases) != 2 {
-		t.Fatalf("应加载 2 个数据库，实际 %d", len(cfg.Databases))
-	}
-	if cfg.DefaultDatabase().Host != "127.0.0.1" {
-		t.Errorf("default 主库 host 应为 127.0.0.1，实际 %q", cfg.DefaultDatabase().Host)
-	}
-
-	analytics := cfg.Databases["analytics"]
-	if analytics.Host != "10.0.0.2" {
-		t.Errorf("analytics 库 host 应为 10.0.0.2，实际 %q", analytics.Host)
-	}
-	// 额外库漏写的字段要补默认值：driver/port/max_open_conns 没写，不能是零值
-	if analytics.Driver != "mysql" || analytics.Port != 3306 || analytics.MaxOpenConns != 100 {
-		t.Errorf("analytics 库应补默认值，实际 driver=%q port=%d max_open=%d",
-			analytics.Driver, analytics.Port, analytics.MaxOpenConns)
-	}
-
-	if len(cfg.Redises) != 2 {
-		t.Fatalf("应加载 2 个 Redis，实际 %d", len(cfg.Redises))
-	}
-	if cfg.DefaultRedis().Host != "127.0.0.1" {
-		t.Errorf("default Redis host 应为 127.0.0.1，实际 %q", cfg.DefaultRedis().Host)
-	}
-	if cfg.Redises["cache"].Host != "10.0.0.3" {
-		t.Errorf("cache Redis host 应为 10.0.0.3，实际 %q", cfg.Redises["cache"].Host)
-	}
 }

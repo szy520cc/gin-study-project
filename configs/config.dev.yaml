@@ -11,6 +11,5 @@ log:
   format: "console"
   log_body: true
 
-databases:
-  default:
-    log_level: "info"
+database:
+  log_level: "info"

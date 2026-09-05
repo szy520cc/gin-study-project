@@ -163,3 +163,24 @@ func ListUsers(c *gin.Context) {
 	page, pageSize := req.Normalize()
 	response.SuccessList(c, users, total, page, pageSize)
 }
+
+// DeleteUser 删除用户
+// @Summary 删除用户
+// @Tags 用户
+// @Produce json
+// @Security Bearer
+// @Param id path int true "用户ID"
+// @Success 200 {object} response.Response
+// @Router /api/v1/users/{id} [delete]
+func DeleteUser(c *gin.Context) {
+	id, ok := pathID(c, "id")
+	if !ok {
+		return
+	}
+
+	if err := service.DeleteUser(c.Request.Context(), id); err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.Success(c, nil)
+}

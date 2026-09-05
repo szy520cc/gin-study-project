@@ -88,7 +88,7 @@ myproject/
 │   │   ├── metrics.go              # RED 指标采集（route 标签用路由模板）
 │   │   ├── logger.go               # 访问日志（脱敏，按需记录 body）
 │   │   ├── secure.go               # 安全响应头（nosniff / DENY / CSP / HSTS）
-│   │   ├── auth.go                 # JWT 认证
+│   │   ├── auth.go                 # JWT 认证 + SelfOnly 归属校验
 │   │   ├── cors.go                 # 跨域（白名单来自配置）
 │   │   ├── ratelimit.go            # 单机令牌桶限流（按 IP，分 global/auth 配额）
 │   │   ├── bodylimit.go            # 请求体大小上限（超限返回 413）
@@ -229,11 +229,10 @@ registerOrder(v1, auth)
 
 ```go
 // bootstrap 启动时注入一次
-resource.Set(cfg, map[string]*gorm.DB{"default": db}, map[string]*cache.RedisClient{"default": redisClient}, jwtManager)
+resource.Set(cfg, db, redisClient, jwtManager)
 
 // data 层取连接（其他层不该调 DB）
-db := resource.DB(ctx)                  // 主库，ctx 里有事务句柄就复用事务
-db2 := resource.DBNamed(ctx, "analytics") // 命名库
+db := resource.DB(ctx)   // ctx 里有事务句柄就复用事务，否则用默认连接
 // controller 取 JWT 管理器
 jwt := resource.JWT()
 ```
@@ -256,7 +255,7 @@ jwt := resource.JWT()
 | `ratelimit.go` | 单机令牌桶，按 IP，分 global/auth 两档配额；桶数量有上限，清理由请求驱动 | 认证接口单独限流：bcrypt 是 CPU 放大器 |
 | `timeout.go` | 单请求 ctx 超时 | 最后，包住真正的业务处理 |
 
-`auth.go` 不在全局链上，它是按路由组挂的：`Auth()` 校验 JWT。
+`auth.go` 不在全局链上，它是按路由组挂的：`Auth()` 校验 JWT，`SelfOnly()` 做资源归属校验（防止任何登录用户删除任意账号）。
 
 **`internal/controller/`** — HTTP 与业务的翻译层。职责被刻意限制在四件事：绑参、校验、调 service、写响应。**不写业务规则，不碰数据库**。
 
@@ -419,12 +418,11 @@ make down    # 用完停掉
 方式一，本机开发写进 `configs/config.local.yaml`（已被 `.gitignore` 忽略，优先级高于环境配置）：
 
 ```yaml
-databases:
-  default:
-    host: "127.0.0.1"
-    username: "root"
-    password: "your-password"
-    dbname: "gin"
+database:
+  host: "127.0.0.1"
+  username: "root"
+  password: "your-password"
+  dbname: "gin"
 jwt:
   secret: "local-dev-only-secret-at-least-32-chars"
 ```
@@ -432,8 +430,8 @@ jwt:
 方式二，用环境变量注入（推荐用于测试/生产），命名规则为 `APP_` + 配置路径大写、`.` 换成 `_`：
 
 ```bash
-export APP_DATABASES_DEFAULT_PASSWORD='your-password'
-export APP_REDISES_DEFAULT_PASSWORD='your-redis-password'
+export APP_DATABASE_PASSWORD='your-password'
+export APP_REDIS_PASSWORD='your-redis-password'
 export APP_JWT_SECRET='at-least-32-chars-random-string'
 ```
 
@@ -554,28 +552,26 @@ admin:                         # 内部管理端口
   addr: "127.0.0.1:9090"       # 留空则不启动；/metrics、/debug/pprof、/version
   pprof: true                  # 生产建议 false，需要排查时临时开
 
-databases:                     # 数据源 map，key 是名字，default 是主库
-  default:
-    driver: "mysql"
-    host: "127.0.0.1"
-    port: 3306
-    username: "root"
-    password: ""               # 由 APP_DATABASES_DEFAULT_PASSWORD / config.local.yaml 注入
-    dbname: "gin"
-    max_idle_conns: 10
-    max_open_conns: 100
-    conn_max_lifetime: 60      # 连接最大存活（分钟）
-    log_level: "warn"          # silent/error/warn/info，生产勿用 info（会打印全量 SQL）
-    slow_threshold: 200        # 慢查询阈值（毫秒），超过按 warn 级别记录
-    log_sql_params: false      # 是否把 SQL 绑定参数打进日志；与 log_level 解耦，生产禁止开启
-  # 需要连多个库时加一项，如 analytics，业务用 resource.DBNamed(ctx, "analytics") 取用
+database:
+  driver: "mysql"
+  host: "127.0.0.1"
+  port: 3306
+  username: "root"
+  password: ""                 # 由 APP_DATABASE_PASSWORD / config.local.yaml 注入
+  dbname: "gin"
+  max_idle_conns: 10
+  max_open_conns: 100
+  conn_max_lifetime: 60        # 连接最大存活（分钟）
+  log_level: "warn"            # silent/error/warn/info，生产勿用 info（会打印全量 SQL）
+  slow_threshold: 200          # 慢查询阈值（毫秒），超过按 warn 级别记录
+  log_sql_params: false        # 是否把 SQL 绑定参数打进日志；与 log_level 解耦，生产禁止开启
 
-redises:                       # Redis 实例 map，key 是名字，default 是主实例
-  default:                     # 不需要 Redis 就不写 redises（或只写需要的实例）
-    host: "127.0.0.1"
-    port: 6379
-    password: ""
-    db: 0
+redis:
+  enabled: true                # 关闭后不建连、健康检查不含 Redis
+  host: "127.0.0.1"
+  port: 6379
+  password: ""
+  db: 0
 
 log:
   level: "info"                # debug / info / warn / error
@@ -622,7 +618,7 @@ rate_limit:
 4. `configs/config.local.yaml`（本机覆盖，不入库）
 5. 环境变量 `APP_*`
 
-环境变量命名：配置路径大写、`.` 换 `_`、加 `APP_` 前缀。例如 `databases.default.password` → `APP_DATABASES_DEFAULT_PASSWORD`。
+环境变量命名：配置路径大写、`.` 换 `_`、加 `APP_` 前缀。例如 `database.password` → `APP_DATABASE_PASSWORD`。
 
 > 实现注意：viper 的 `AutomaticEnv` 对「嵌套 key + Unmarshal」不生效，必须对每个 key 显式 `BindEnv`，而 `AllKeys()` 只包含有默认值或出现在配置文件里的 key。因此 `config.go` 里用 `envOnlyKeys` 登记了那些「刻意不写进入库配置文件」的敏感项（数据库/Redis 密码、JWT secret 等）并给了空默认值——不登记的话，环境变量注入会被**静默忽略**。`internal/config/config_test.go` 有用例守着这条。
 
@@ -875,6 +871,7 @@ histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by 
 | PUT | `/api/v1/users/profile` | 更新当前用户信息 | `UserUpdateRequest` |
 | GET | `/api/v1/users` | 获取用户列表（仅公开字段：id/username/avatar/created_at） | `?page=1&page_size=10`（page 上限 10000，page_size 上限 100） |
 | GET | `/api/v1/users/:id` | 获取指定用户的公开信息（不含 email/phone/status） | - |
+| DELETE | `/api/v1/users/:id` | 删除用户（**仅限本人**） | - |
 
 #### 订单接口
 

@@ -14,7 +14,6 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"sort"
 	"time"
 )
 
@@ -129,34 +128,13 @@ func C(ctx context.Context) *slog.Logger {
 // 老代码是 logger.Info("msg", map[string]interface{}{...})，保留这组函数避免全量改造，
 // 新代码建议直接用 logger.C(ctx).Info("msg", "key", value)。
 
-// fieldsToArgs 把 map 风格的字段摊平成 slog 的 key, value, ... 序列。
-//
-// 必须遍历全部 map：只取 fields[0] 的话，调用方多传一个 map（比如把公共字段
-// 和业务字段分开传）会被静默丢弃，日志缺字段且没有任何报错，排查时极难发现。
-//
-// 每个 map 的 key 先排序再拼接：Go 的 map 遍历顺序随机，不排序的话同一句日志
-// 每次输出的字段顺序都不同 —— 字段顺序不影响语义（日志字段是 key=value 对），
-// 但影响可读性与 diff 稳定性：排查时拿两次日志做 diff、或用固定字符串 grep，
-// 字段顺序一乱，比对结果就会抖动，掩盖真正的差异。
-// 这里排序不改变「相对 map 之间的顺序」（仍按调用方传参顺序），只固定单个 map 内部顺序。
 func fieldsToArgs(fields []map[string]interface{}) []any {
-	total := 0
-	for _, f := range fields {
-		total += len(f)
-	}
-	if total == 0 {
+	if len(fields) == 0 {
 		return nil
 	}
-	args := make([]any, 0, total*2)
-	for _, f := range fields {
-		keys := make([]string, 0, len(f))
-		for k := range f {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
-			args = append(args, k, f[k])
-		}
+	args := make([]any, 0, len(fields[0])*2)
+	for k, v := range fields[0] {
+		args = append(args, k, v)
 	}
 	return args
 }

@@ -24,25 +24,17 @@ func (c *Config) Validate() error {
 		errs = append(errs, fmt.Sprintf("server.mode 非法: %q（可选 debug/release/test）", c.Server.Mode))
 	}
 
-	// 至少要有主库：业务层默认走 databases.default，没有它一切读写都落空。
-	if len(c.Databases) == 0 {
-		errs = append(errs, "databases 不能为空（至少配置 default 主库）")
+	if c.Database.Host == "" || c.Database.DBName == "" || c.Database.Username == "" {
+		errs = append(errs, "database.host/dbname/username 不能为空")
 	}
-	for name, db := range c.Databases {
-		if db.Host == "" || db.DBName == "" || db.Username == "" {
-			errs = append(errs, fmt.Sprintf("databases.%s.host/dbname/username 不能为空", name))
-		}
-		if !isOneOf(db.LogLevel, "silent", "error", "warn", "info") {
-			errs = append(errs, fmt.Sprintf("databases.%s.log_level 非法: %q（可选 silent/error/warn/info）", name, db.LogLevel))
-		}
+	if !isOneOf(c.Database.LogLevel, "silent", "error", "warn", "info") {
+		errs = append(errs, fmt.Sprintf("database.log_level 非法: %q（可选 silent/error/warn/info）", c.Database.LogLevel))
 	}
 
 	// 以下几项的共同点：配错不会报错，只会「静默失效」。
 	// 校验的意义就是把「看起来开着、其实没生效」变成启动失败。
-	for name, r := range c.Redises {
-		if r.Host == "" {
-			errs = append(errs, fmt.Sprintf("redises.%s.host 不能为空（否则会连到本机 6379）", name))
-		}
+	if c.Redis.Enabled && c.Redis.Host == "" {
+		errs = append(errs, "redis.enabled=true 时 redis.host 不能为空（否则会连到本机 6379）")
 	}
 	if !isOneOf(c.Log.Level, "debug", "info", "warn", "error") {
 		errs = append(errs, fmt.Sprintf("log.level 非法: %q（可选 debug/info/warn/error）", c.Log.Level))
@@ -99,10 +91,8 @@ func (c *Config) Validate() error {
 		if len(c.JWT.Secret) < 32 {
 			errs = append(errs, "生产环境 jwt.secret 长度必须 >= 32")
 		}
-		for name, db := range c.Databases {
-			if db.Password == "" {
-				errs = append(errs, fmt.Sprintf("生产环境 databases.%s.password 不能为空", name))
-			}
+		if c.Database.Password == "" {
+			errs = append(errs, "生产环境 database.password 不能为空")
 		}
 		// 本项目用 Bearer token 认证，不依赖 cookie：即使 allow_credentials=false，
 		// allow_origins=* 也意味着任意站点的 JS 带上受害者 token 就能读到响应体。
@@ -118,10 +108,8 @@ func (c *Config) Validate() error {
 		if c.Admin.Pprof && c.Admin.Addr != "" && !isLoopbackAddr(c.Admin.Addr) {
 			errs = append(errs, fmt.Sprintf("生产环境 admin.pprof=true 时 admin.addr 必须监听回环地址，当前为 %q", c.Admin.Addr))
 		}
-		for name, db := range c.Databases {
-			if db.LogSQLParams {
-				errs = append(errs, fmt.Sprintf("生产环境不允许 databases.%s.log_sql_params=true（SQL 绑定参数会连同用户数据落盘）", name))
-			}
+		if c.Database.LogSQLParams {
+			errs = append(errs, "生产环境不允许 database.log_sql_params=true（SQL 绑定参数会连同用户数据落盘）")
 		}
 		// 不做成硬失败：直连暴露的部署确实应该保持 trusted_proxies 为空，
 		// 配置里无法区分「直连」和「忘填」。但后果足够严重，必须显式提示。

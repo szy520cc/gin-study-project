@@ -47,13 +47,13 @@ func main() {
 		if cfg.IsProd() {
 			exit(fmt.Errorf("拒绝在生产环境执行 -drop"))
 		}
-		if *confirm != cfg.DefaultDatabase().DBName {
+		if *confirm != cfg.Database.DBName {
 			exit(fmt.Errorf("-drop 需要 -confirm <库名>：当前目标是 %s@%s:%d/%s，请确认后重试",
-				cfg.DefaultDatabase().Username, cfg.DefaultDatabase().Host, cfg.DefaultDatabase().Port, cfg.DefaultDatabase().DBName))
+				cfg.Database.Username, cfg.Database.Host, cfg.Database.Port, cfg.Database.DBName))
 		}
 	}
 
-	db, err := database.NewMySQL(bootstrap.DBOptions(cfg.DefaultDatabase()))
+	db, err := database.NewMySQL(bootstrap.DBOptions(cfg.Database))
 	if err != nil {
 		exit(err)
 	}
@@ -72,7 +72,7 @@ func main() {
 
 	if *drop {
 		logger.Warn("dropping tables before migration", map[string]interface{}{
-			"host": cfg.DefaultDatabase().Host, "port": cfg.DefaultDatabase().Port, "db": cfg.DefaultDatabase().DBName,
+			"host": cfg.Database.Host, "port": cfg.Database.Port, "db": cfg.Database.DBName,
 		})
 		if err := db.Migrator().DropTable(models...); err != nil {
 			exit(err)
@@ -84,7 +84,7 @@ func main() {
 	}
 
 	logger.Info("migration completed", map[string]interface{}{
-		"env": *env, "db": cfg.DefaultDatabase().DBName, "models": len(models),
+		"env": *env, "db": cfg.Database.DBName, "models": len(models),
 	})
 }
 

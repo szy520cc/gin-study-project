@@ -26,14 +26,7 @@ func txOrder(t *testing.T) *model.Order {
 		Status:           model.OrderStatusPending,
 	}
 	t.Cleanup(func() {
-		// 先按订单号确认记录真的在库里，再删它的流水。
-		// 回滚用例里订单压根没落库，但 GORM 已经把自增 ID 写进了 order.ID，
-		// 直接拿这个值去删流水，会误伤恰好用了同一个 ID 的其他订单。
-		var id uint64
-		if err := testDB.Model(&model.Order{}).
-			Where("order_no = ?", no).Pluck("id", &id).Error; err == nil && id != 0 {
-			testDB.Where("order_id = ?", id).Delete(&model.OrderStatusLog{})
-		}
+		testDB.Where("order_id = ?", order.ID).Delete(&model.OrderStatusLog{})
 		testDB.Where("order_no = ?", no).Delete(&model.Order{})
 	})
 	return order

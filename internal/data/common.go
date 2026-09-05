@@ -24,16 +24,10 @@ import (
 	"gorm.io/gorm"
 )
 
-// connDb 返回本次操作应使用的连接（主库）。
+// connDb 返回本次操作应使用的连接。
 // ctx 中存在事务句柄时复用事务，否则用根连接；两条路径都已 WithContext(ctx)。
 func connDb(ctx context.Context) *gorm.DB {
 	return resource.DB(ctx)
-}
-
-// connNamedDb 返回指定数据源的连接，供需要读写非主库的数据函数使用。
-// 主库用 connDb 即可；命名库只在确有多个库时才需要。
-func connNamedDb(ctx context.Context, name string) *gorm.DB {
-	return resource.DBNamed(ctx, name)
 }
 
 // IsNotFound 记录不存在

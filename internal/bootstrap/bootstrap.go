@@ -35,8 +35,8 @@ import (
 // App 持有进程生命周期内需要显式关闭的资源。
 type App struct {
 	Cfg      *config.Config
-	DBs      map[string]*gorm.DB
-	Redises  map[string]*cache.RedisClient
+	DB       *gorm.DB
+	Redis    *cache.RedisClient
 	Srv      *http.Server
 	AdminSrv *http.Server
 }
@@ -62,17 +62,17 @@ func Init(cfg *config.Config) (*App, error) {
 	}()
 
 	// 1. 数据库（强依赖，失败即退出）
-	if err := app.initDatabases(); err != nil {
+	if err := app.initDatabase(); err != nil {
 		return nil, err
 	}
 
-	// 2. Redis（出现在 redises map 里的才连接；连接失败即视为配置错误）
-	if err := app.initRedises(); err != nil {
+	// 2. Redis（可通过配置关闭；开启时连接失败即视为配置错误）
+	if err := app.initRedis(); err != nil {
 		return nil, err
 	}
 
 	// 3. 资源交给全局单例，此后业务层可以用 resource.DB(ctx) / resource.JWT()
-	resource.Set(cfg, app.DBs, app.Redises, auth.NewJWTManager(
+	resource.Set(cfg, app.DB, app.Redis, auth.NewJWTManager(
 		cfg.JWT.Secret,
 		time.Duration(cfg.JWT.ExpireTime)*time.Hour,
 		cfg.JWT.Issuer,
@@ -123,56 +123,53 @@ func DBOptions(cfg config.DatabaseConfig) database.Options {
 	}
 }
 
-// initDatabases 按配置连接所有数据源。任一失败即返回错误（数据库是强依赖）。
-func (app *App) initDatabases() error {
-	app.DBs = make(map[string]*gorm.DB, len(app.Cfg.Databases))
-	for name, dbCfg := range app.Cfg.Databases {
-		db, err := database.NewMySQL(DBOptions(dbCfg))
+func (app *App) initDatabase() error {
+	cfg := app.Cfg.Database
+	db, err := database.NewMySQL(DBOptions(cfg))
+	if err != nil {
+		return err
+	}
+	app.DB = db
+	logger.Info("database connected", map[string]interface{}{
+		"host": cfg.Host, "db": cfg.DBName,
+	})
+
+	health.RegisterFunc("database", func(ctx context.Context) error {
+		sqlDB, err := db.DB()
 		if err != nil {
-			return fmt.Errorf("连接数据库 %q 失败: %w", name, err)
+			return err
 		}
-		app.DBs[name] = db
-		logger.Info("database connected", map[string]interface{}{
-			"name": name, "host": dbCfg.Host, "db": dbCfg.DBName,
-		})
+		return sqlDB.PingContext(ctx)
+	})
 
-		// 健康检查按数据源名区分，探针能看到每个库各自的状态
-		health.RegisterFunc("database."+name, func(ctx context.Context) error {
-			sqlDB, err := db.DB()
-			if err != nil {
-				return err
-			}
-			return sqlDB.PingContext(ctx)
-		})
-
-		// 连接池打满是最常见的「服务变慢但看不出原因」的成因：
-		// WaitCount / WaitDuration 持续增长即为信号。指标名带数据源名避免互相覆盖。
-		if sqlDB, err := db.DB(); err == nil {
-			if err := metrics.RegisterDBStats("mysql_"+name, sqlDB.Stats); err != nil {
-				logger.Warn("register db metrics failed", map[string]interface{}{"name": name, "error": err.Error()})
-			}
+	// 连接池打满是最常见的「服务变慢但看不出原因」的成因：
+	// WaitCount / WaitDuration 持续增长即为信号。
+	if sqlDB, err := db.DB(); err == nil {
+		if err := metrics.RegisterDBStats("mysql", sqlDB.Stats); err != nil {
+			logger.Warn("register db metrics failed", map[string]interface{}{"error": err.Error()})
 		}
 	}
 	return nil
 }
 
-// initRedises 按配置连接所有 Redis 实例。map 里出现的即「启用」。
-func (app *App) initRedises() error {
-	app.Redises = make(map[string]*cache.RedisClient, len(app.Cfg.Redises))
-	for name, rCfg := range app.Cfg.Redises {
-		client, err := cache.NewRedis(cache.Options{
-			Host:     rCfg.Host,
-			Port:     rCfg.Port,
-			Password: rCfg.Password,
-			DB:       rCfg.DB,
-		})
-		if err != nil {
-			return fmt.Errorf("连接 Redis %q 失败: %w", name, err)
-		}
-		app.Redises[name] = client
-		logger.Info("redis connected", map[string]interface{}{"name": name, "host": rCfg.Host})
-		health.RegisterFunc("redis."+name, client.Ping)
+func (app *App) initRedis() error {
+	cfg := app.Cfg.Redis
+	if !cfg.Enabled {
+		logger.Warn("redis disabled by config")
+		return nil
 	}
+	redisClient, err := cache.NewRedis(cache.Options{
+		Host:     cfg.Host,
+		Port:     cfg.Port,
+		Password: cfg.Password,
+		DB:       cfg.DB,
+	})
+	if err != nil {
+		return err
+	}
+	app.Redis = redisClient
+	logger.Info("redis connected", map[string]interface{}{"host": cfg.Host})
+	health.RegisterFunc("redis", redisClient.Ping)
 	return nil
 }
 
@@ -275,19 +272,19 @@ func (app *App) drain() {
 
 // Close 释放持有的资源。顺序与初始化相反。
 func (app *App) Close() {
-	for name, r := range app.Redises {
-		if err := r.Close(); err != nil {
-			logger.Warn("close redis failed", map[string]interface{}{"name": name, "error": err.Error()})
+	if app.Redis != nil {
+		if err := app.Redis.Close(); err != nil {
+			logger.Warn("close redis failed", map[string]interface{}{"error": err.Error()})
 		} else {
-			logger.Info("redis connection closed", map[string]interface{}{"name": name})
+			logger.Info("redis connection closed")
 		}
 	}
-	for name, db := range app.DBs {
-		if sqlDB, err := db.DB(); err == nil {
+	if app.DB != nil {
+		if sqlDB, err := app.DB.DB(); err == nil {
 			if err := sqlDB.Close(); err != nil {
-				logger.Warn("close database failed", map[string]interface{}{"name": name, "error": err.Error()})
+				logger.Warn("close database failed", map[string]interface{}{"error": err.Error()})
 			} else {
-				logger.Info("database connection closed", map[string]interface{}{"name": name})
+				logger.Info("database connection closed")
 			}
 		}
 	}

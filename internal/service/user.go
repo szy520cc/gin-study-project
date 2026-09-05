@@ -139,6 +139,14 @@ func UpdateUser(ctx context.Context, id uint64, req *model.UserUpdateRequest) (*
 	return user.ToResponse(), nil
 }
 
+// DeleteUser 删除用户
+func DeleteUser(ctx context.Context, id uint64) error {
+	if _, err := getUser(ctx, id); err != nil {
+		return err
+	}
+	return data.DeleteUser(ctx, id)
+}
+
 // ListUsers 分页获取用户列表（只含公开字段）。
 // 列表对所有登录用户开放，所以不能返回 email/phone。
 func ListUsers(ctx context.Context, page, pageSize int) ([]*model.UserPublicResponse, int64, error) {
