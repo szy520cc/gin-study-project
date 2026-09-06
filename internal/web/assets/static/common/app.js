@@ -184,94 +184,244 @@
       '<div class="content-hint"><div class="spinner-border spinner-border-sm text-primary"></div> 加载中…</div>';
   }
 
-  // ---------- 加载页面 schema ----------
+  // ---------- 加载页面 schema（标签页切换复用） ----------
+  var loadSeq = 0;
   function loadSchema(key) {
     showLoading();
+    var seq = ++loadSeq; // 快速切换标签时丢弃过期响应，避免旧页面覆盖新页面
     fetch(PAGES_BASE + key).then(function (res) {
       if (!res.ok) throw new Error('页面加载失败 HTTP ' + res.status);
       return res.json();
     }).then(function (schema) {
+      if (seq !== loadSeq) return;
       renderPage(schema);
-      afterPage(key, schema);
     }).catch(function (err) {
-      if (mount) mount.innerHTML = '<div class="content-hint">' + err.message + '</div>';
+      if (seq === loadSeq && mount) mount.innerHTML = '<div class="content-hint">' + err.message + '</div>';
     });
   }
 
-  // ---------- 路由：hash #/pages/xxx.json ----------
+  // ---------- 路由 / 标签页 / 面包屑 / 树形菜单 ----------
+
+  var HOME_KEY = 'home.json';
+  var MAX_TABS = 15;
+  var tabs = []; // [{key,title}]，首页固定不可关闭，保证至少存在一个标签
+  var activeKey = '';
+
   function currentKey() {
     var h = location.hash;
     if (h && h.indexOf('#/pages/') === 0) return h.slice('#/pages/'.length);
-    return 'home.json';
+    return HOME_KEY;
   }
-  function go(key) {
-    var target = '#/pages/' + key;
-    if (location.hash === target) loadSchema(key);
-    else location.hash = target;
-  }
-  function navigate() {
-    var key = currentKey();
-    setActiveMenu(key);
-    loadSchema(key);
+  function leafTitle(key) {
+    var chain = findChain(key);
+    if (chain && chain.length) return chain[chain.length - 1].title;
+    return key.replace(/\.json$/, '');
   }
 
-  // ---------- 菜单 ----------
-  function buildMenu() {
-    var html = '';
-    MENU.forEach(function (g) {
-      html += '<div class="menu-section">' + g.section + '</div>';
-      g.items.forEach(function (it) {
-        html += '<a class="menu-item" data-key="' + it.key + '" href="#/pages/' + it.key + '">' +
-          '<i class="fa-solid ' + it.icon + '"></i><span>' + it.title + '</span></a>';
-      });
-    });
-    var el = document.getElementById('sideMenu');
-    if (el) el.innerHTML = html;
-  }
-  function setActiveMenu(key) {
-    var links = document.querySelectorAll('#sideMenu .menu-item');
-    for (var i = 0; i < links.length; i++) {
-      links[i].classList.toggle('active', links[i].getAttribute('data-key') === key);
-    }
-  }
-  function findInMenu(key) {
-    for (var i = 0; i < MENU.length; i++) {
-      for (var j = 0; j < MENU[i].items.length; j++) {
-        if (MENU[i].items[j].key === key) {
-          return { section: MENU[i].section, title: MENU[i].items[j].title };
+  // findChain：返回 key 所在节点到根节点的链（含叶子），支持任意层级
+  function findChain(key) {
+    function walk(nodes, acc) {
+      for (var i = 0; i < nodes.length; i++) {
+        var n = nodes[i];
+        var next = acc.concat([n]);
+        if (n.key === key) return next;
+        if (n.children && n.children.length) {
+          var r = walk(n.children, next);
+          if (r) return r;
         }
+      }
+      return null;
+    }
+    return walk(MENU, []);
+  }
+  // firstLeafKey：父容器点击时跳到该子树下第一个叶子页
+  function firstLeafKey(node) {
+    if (node.key) return node.key;
+    if (node.children && node.children.length) {
+      for (var i = 0; i < node.children.length; i++) {
+        var k = firstLeafKey(node.children[i]);
+        if (k) return k;
       }
     }
     return null;
   }
-  function afterPage(key, schema) {
-    var m = findInMenu(key);
-    var title = (schema && schema.title) || (m && m.title) || key;
-    document.title = title + ' · Gin Study';
-    // 用 DOM + textContent 构建面包屑，避免 schema title 进入 innerHTML
-    var bc = document.getElementById('breadcrumb');
-    if (bc) {
-      bc.textContent = '';
-      var liHome = document.createElement('li');
-      liHome.className = 'breadcrumb-item';
-      var aHome = document.createElement('a');
-      aHome.href = '#/pages/home.json';
-      aHome.textContent = '首页';
-      liHome.appendChild(aHome);
-      bc.appendChild(liHome);
-      if (m) {
-        var liSection = document.createElement('li');
-        liSection.className = 'breadcrumb-item';
-        liSection.textContent = m.section;
-        bc.appendChild(liSection);
+
+  // ---------- 树形菜单渲染（可折叠，父节点不可跳转） ----------
+  function menuIconHtml(n) {
+    var ic = n.icon || 'fa-circle';
+    return '<i class="fa-solid ' + ic + '"></i>';
+  }
+  function treeHtml(nodes) {
+    var html = '<ul class="menu-tree">';
+    nodes.forEach(function (n) {
+      var hasKids = n.children && n.children.length > 0;
+      if (hasKids) {
+        // 默认收起；点击展开（同一层级只保留一个），激活路径由 setActiveMenu 自动展开
+        html += '<li class="menu-li menu-parent-li">' +
+          '<a class="menu-item menu-parent" href="javascript:void(0)" title="' + n.title + '">' +
+          menuIconHtml(n) + '<span class="menu-text">' + n.title + '</span>' +
+          '<i class="fa-solid fa-angle-down menu-arrow"></i></a>' + treeHtml(n.children) + '</li>';
+      } else {
+        html += '<li class="menu-li">' +
+          '<a class="menu-item menu-leaf" data-key="' + n.key + '" href="#/pages/' + n.key + '" title="' + n.title + '">' +
+          menuIconHtml(n) + '<span class="menu-text">' + n.title + '</span></a></li>';
       }
-      var liTitle = document.createElement('li');
-      liTitle.className = 'breadcrumb-item active';
-      liTitle.textContent = title;
-      bc.appendChild(liTitle);
+    });
+    return html + '</ul>';
+  }
+  function buildMenu() {
+    var el = document.getElementById('sideMenu');
+    if (!el) return;
+    el.innerHTML = treeHtml(MENU);
+    // 父节点点击：仅折叠/展开，不跳转；同一层级手风琴式，只展开点击的那个
+    el.addEventListener('click', function (e) {
+      var p = e.target.closest('.menu-parent');
+      if (p) {
+        e.preventDefault();
+        var li = p.parentElement;
+        if (!li) return;
+        if (!li.classList.contains('open')) {
+          var ul = li.parentElement;
+          if (ul) {
+            for (var i = 0; i < ul.children.length; i++) {
+              var sib = ul.children[i];
+              if (sib !== li && sib.classList && sib.classList.contains('menu-parent-li')) sib.classList.remove('open');
+            }
+          }
+          li.classList.add('open');
+        } else {
+          li.classList.remove('open');
+        }
+      }
+    });
+  }
+  function setActiveMenu(key) {
+    var leaf = null;
+    var links = document.querySelectorAll('#sideMenu .menu-leaf');
+    for (var i = 0; i < links.length; i++) {
+      var match = links[i].getAttribute('data-key') === key;
+      links[i].classList.toggle('active', match);
+      if (match) leaf = links[i];
     }
-    var pt = document.getElementById('pageTitle');
-    if (pt) pt.textContent = title;
+    if (!leaf) return;
+    // 逐级展开祖先 li
+    var li = leaf.closest('li');
+    while (li) {
+      li.classList.add('open');
+      var ul = li.parentElement;
+      li = ul && ul.tagName === 'UL' && ul.parentElement ? ul.parentElement.closest('li') : null;
+    }
+  }
+
+  // ---------- 顶部标签页 ----------
+  function upsertTab(key) {
+    for (var i = 0; i < tabs.length; i++) if (tabs[i].key === key) return;
+    if (tabs.length >= MAX_TABS) {
+      // 超出上限：关闭最早且非首页、非当前页
+      for (var j = 0; j < tabs.length; j++) {
+        if (tabs[j].key !== HOME_KEY && tabs[j].key !== activeKey) { tabs.splice(j, 1); break; }
+      }
+    }
+    tabs.push({ key: key, title: leafTitle(key) });
+  }
+  function renderTabs() {
+    var bar = document.getElementById('pageTabs');
+    if (!bar) return;
+    bar.textContent = '';
+    tabs.forEach(function (t) {
+      var active = t.key === activeKey;
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'page-tab' + (active ? ' active' : '');
+      var sp = document.createElement('span');
+      sp.className = 'tab-title';
+      sp.textContent = t.title;
+      btn.appendChild(sp);
+      if (t.key !== HOME_KEY) {
+        var x = document.createElement('span');
+        x.className = 'tab-close';
+        x.textContent = '×';
+        x.title = '关闭';
+        x.addEventListener('click', function (ev) { ev.stopPropagation(); closeTab(t.key); });
+        btn.appendChild(x);
+      }
+      btn.addEventListener('click', function () { if (t.key !== activeKey) go(t.key); });
+      bar.appendChild(btn);
+    });
+  }
+  function closeTab(key) {
+    if (key === HOME_KEY) return; // 首页固定保留
+    var idx = -1;
+    for (var i = 0; i < tabs.length; i++) if (tabs[i].key === key) { idx = i; break; }
+    if (idx < 0) return;
+    tabs.splice(idx, 1);
+    if (key !== activeKey) { renderTabs(); return; }
+    // 关闭的是当前页：切到相邻标签，没有则回首页
+    var next = tabs.length ? tabs[Math.min(idx, tabs.length - 1)] : null;
+    go(next ? next.key : HOME_KEY);
+  }
+
+  // ---------- 面包屑：首页 > 一级 > ... > 当前页（父级可点击回跳） ----------
+  function crumbItem(text, href, active, iconCls) {
+    var li = document.createElement('li');
+    li.className = 'breadcrumb-item' + (active ? ' active' : '');
+    if (iconCls) {
+      var ic = document.createElement('i');
+      ic.className = 'fa-solid ' + iconCls;
+      li.appendChild(ic);
+    }
+    if (href && !active) {
+      var a = document.createElement('a');
+      a.href = href;
+      a.textContent = text;
+      li.appendChild(a);
+    } else {
+      li.appendChild(document.createTextNode(text));
+    }
+    return li;
+  }
+  function renderBreadcrumb(key, chain) {
+    var bc = document.getElementById('breadcrumb');
+    if (!bc) return;
+    bc.textContent = '';
+    var title = leafTitle(key);
+
+    if (key === HOME_KEY || !chain) {
+      bc.appendChild(crumbItem('首页', '', true, 'fa-house'));
+      return;
+    }
+
+    // 忠实展示每一级：首页 + 全部祖先（不同层级即使同名也各自保留）+ 当前页。
+    // 不做“同名去重”：同名不同级是合法层级，去掉会丢失路径信息。
+    bc.appendChild(crumbItem('首页', '#/pages/' + HOME_KEY, false, 'fa-house'));
+
+    for (var i = 0; i < chain.length - 1; i++) {
+      var node = chain[i];
+      if (!node.title) continue;
+      var first = firstLeafKey(node);
+      bc.appendChild(crumbItem(node.title, first ? '#/pages/' + first : null, false));
+    }
+    bc.appendChild(crumbItem(title, '', true));
+  }
+
+  // ---------- 路由主入口：侧栏叶子 / 标签页 / 面包屑 / hash 全部汇到这里 ----------
+  function applyKey(key) {
+    activeKey = key;
+    if (tabs.length === 0) upsertTab(HOME_KEY); // 保证默认首页标签存在
+    upsertTab(key);
+    renderTabs();
+    setActiveMenu(key);
+    renderBreadcrumb(key, findChain(key));
+    document.title = leafTitle(key) + ' · Gin Study';
+    loadSchema(key);
+  }
+  function go(key) {
+    var target = '#/pages/' + key;
+    if (location.hash === target) applyKey(key);
+    else location.hash = target; // 触发 hashchange → navigate
+  }
+  function navigate() {
+    applyKey(currentKey());
   }
 
   // ---------- 用户区 ----------

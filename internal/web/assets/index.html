@@ -8,7 +8,7 @@
      FontAwesome 只保留 amis 自带那一份，不再额外引入独立 all.min.css，避免字体重复下载。 -->
 <link rel="stylesheet" href="/admin/static/bootstrap/bootstrap.min.css">
 <link rel="stylesheet" href="/admin/static/amis/sdk.css">
-<link rel="stylesheet" href="/admin/static/common/app.css">
+<link rel="stylesheet" href="/admin/static/common/app.css?v=20260906b">
 </head>
 <body class="app-shell" id="appShell">
 
@@ -50,17 +50,15 @@
   <nav id="sideMenu" class="side-menu"></nav>
 </aside>
 
-<!-- 主内容区（面包屑 + amis 页面容器） -->
+<!-- 主内容区：顶部多标签页 + 面包屑 + amis 页面容器 -->
 <main class="app-main">
+  <div class="page-tabs" id="pageTabs"></div>
   <div class="page-head">
-    <div>
-      <div class="page-title" id="pageTitle">首页</div>
-      <nav aria-label="breadcrumb">
-        <ol class="breadcrumb" id="breadcrumb">
-          <li class="breadcrumb-item"><a href="#/pages/home.json">首页</a></li>
-        </ol>
-      </nav>
-    </div>
+    <nav aria-label="breadcrumb">
+      <ol class="breadcrumb" id="breadcrumb">
+        <li class="breadcrumb-item active">首页</li>
+      </ol>
+    </nav>
   </div>
   <div id="pageContent">
     <div class="content-hint"><div class="spinner-border spinner-border-sm text-primary"></div> 加载中…</div>
@@ -71,7 +69,7 @@
 <script src="/admin/static/bootstrap/bootstrap.bundle.min.js"></script>
 <script src="/admin/static/amis/sdk.min.js"></script>
 <!-- 菜单配置（独立文件，先于 app.js 加载，app.js 读取 window.APP_MENU） -->
-<script src="/admin/static/common/app_menu.js"></script>
-<script src="/admin/static/common/app.js"></script>
+<script src="/admin/static/common/app_menu.js?v=20260906b"></script>
+<script src="/admin/static/common/app.js?v=20260906d"></script>
 </body>
 </html>
