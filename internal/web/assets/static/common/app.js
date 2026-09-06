@@ -148,35 +148,92 @@
     });
   }
 
-  // 给 amis-ui 的 Button 组件补「默认提示容器」。
-  // CRUD 内置按钮（刷新 / 点击选择显示列）是组件内部生成的，schema 无法逐个
-  // 配置 tooltipContainer（该字段是 Button 的组件 props，不是 embed 的 env）；
-  // 因此运行时直接改 Button.defaultProps，让所有按钮的 hover 提示都渲染并
-  // 定位到 #pageContent（CSS 已给其 position:relative 作定位包含块），
-  // 气泡锚定在按钮旁，不再外溢到 fixed 的侧栏区。
+  // 按钮提示统一化（容器 + 位置）：
+  //  - 容器：CRUD 内置的“刷新 / 点击选择显示列”按钮由组件内部生成，schema 无法
+  //    逐个配置 tooltipContainer（Button 组件 props，非 embed env）。这里运行时给
+  //    amis-ui Button 补 defaultProps.tooltipContainer → #pageContent，提示只渲染在
+  //    主内容区内，配合 #pageContent{position:relative} 定位，不再外溢到 fixed 侧栏；
+  //  - 位置：Tooltip 外层组件合并时，若 tooltip 为对象则其自身 placement 会覆盖
+  //    外层 placement（如列选择按钮被 Table 写死 placement:"bottom"、schema 按钮经
+  //    Action 默认 bottom）。因此在 Button 与 Tooltip 外层组件的渲染出口统一把
+  //    placement 强制为 top，使所有 hover 提示都稳定显示在图标上方。
   var btnTooltipPatched = false;
   function patchButtonTooltipContainer() {
     var req = window.amisRequire || (window.amis && window.amis.require);
     if (typeof req !== 'function' || btnTooltipPatched) return;
+    btnTooltipPatched = true;
     function host() { return document.getElementById('pageContent') || document.body; }
-    function apply(mod) {
+    // 返回一份 placement 恒为 top 的 props（不直接改原对象，避免污染组件状态）
+    function forceTopProps(props) {
+      if (!props || typeof props !== 'object') return props;
+      var tooltip = props.tooltip;
+      if (tooltip && typeof tooltip === 'object' && !Array.isArray(tooltip)) {
+        if (!tooltip.placement || tooltip.placement !== 'top') {
+          props = Object.assign({}, props, { tooltip: Object.assign({}, tooltip, { placement: 'top' }) });
+        }
+      } else if (typeof props.placement === 'string' && props.placement !== 'top') {
+        props = Object.assign({}, props, { placement: 'top' });
+      }
+      return props;
+    }
+    // 包装类组件 render：把返回 React 元素上的 placement / tooltip.placement 统一成 top
+    function patchRender(ctor) {
+      var proto = ctor && (ctor.prototype || ctor);
+      if (!proto || typeof proto.render !== 'function' || proto.__tooltipTopFixed) return false;
+      proto.__tooltipTopFixed = true;
+      var orig = proto.render;
+      proto.render = function () {
+        var out = orig.apply(this, arguments);
+        var fix = function (node) {
+          if (node && node.props) node.props = forceTopProps(node.props);
+        };
+        if (Array.isArray(out)) { for (var i = 0; i < out.length; i++) fix(out[i]); }
+        else fix(out);
+        return out;
+      };
+      return true;
+    }
+    function applyButtonMod(mod) {
       var btn = (mod && mod.Button) || (mod && mod.default && mod.default.Button);
       if (!btn) return false;
       btn.defaultProps = btn.defaultProps || {};
       if (btn.defaultProps.tooltipContainer === undefined) btn.defaultProps.tooltipContainer = host;
+      btn.defaultProps.tooltipPlacement = 'top';
+      patchRender(btn);
       return true;
     }
-    function ok() { btnTooltipPatched = true; if (window.console) console.log('[shell] amis Button tooltipContainer -> #pageContent'); }
-    function fail() {
-      if (window.console) console.warn('[shell] 未能给 amis Button 注入 tooltipContainer');
+    // Tooltip 外层组件模块（Button 渲染链内部依赖 4aeb988）
+    function applyTooltipMod(mod) {
+      var ok = false;
+      if (mod) {
+        var cands = [mod.default, mod.TooltipWrapper];
+        for (var i = 0; i < cands.length; i++) { if (patchRender(cands[i])) ok = true; }
+      }
+      return ok;
     }
+    function done(ok, name) {
+      if (window.console) console.log('[shell] amis 按钮提示已接管（' + name + '）: ' + (ok ? '容器 #pageContent + 位置 top' : '无需注入'));
+    }
+    // 先同步拿，失败再走 AMD 回调
+    function trySync() {
+      var ok1 = false, ok2 = false;
+      try {
+        var m = req('amis-ui');
+        ok1 = !!(m && applyButtonMod(m));
+      } catch (e) { /* 忽略 */ }
+      try {
+        var tm = req('4aeb988');
+        ok2 = applyTooltipMod(tm);
+      } catch (e) { /* 忽略 */ }
+      if (ok1 || ok2) done(ok1, ok1 && ok2 ? 'Button+Tooltip' : (ok1 ? 'Button' : 'Tooltip'));
+    }
+    trySync();
     try {
-      var m = req('amis-ui');
-      if (m && apply(m)) { ok(); return; }
-    } catch (e) { /* 同步拿不到再走 AMD 回调 */ }
+      req(['amis-ui'], function (m) { if (m && applyButtonMod(m)) done(true, 'Button'); }, function () {});
+    } catch (e) { /* 忽略 */ }
     try {
-      req(['amis-ui'], function (mod) { if (mod && apply(mod)) ok(); else fail(); }, fail);
-    } catch (e) { fail(); }
+      req(['4aeb988'], function (tm) { if (applyTooltipMod(tm)) done(true, 'Tooltip'); }, function () {});
+    } catch (e) { /* 忽略 */ }
   }
 
   // amis CRUD 默认 syncLocation=true：筛选/翻页时会改写地址栏 hash，
@@ -224,8 +281,8 @@
             },
             // getModalContainer 属 env 契约（Dialog/Modal 渲染容器），保留：
             // 弹层挂到主内容区，由 #pageContent 的 position:relative 统一收束。
-            // 注：tooltipContainer/popOverContainer 是组件 props、env 无效，
-            // 已通过 patchButtonTooltipContainer() 在组件层全局注入。
+            // 注：tooltipContainer/placement 是组件 props、env 无效，已由
+            // patchButtonTooltipContainer() 在组件层统一注入（容器 + 位置 top）。
             getModalContainer: function () { return document.getElementById('pageContent') || document.body; }
           }
         );
