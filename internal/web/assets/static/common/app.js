@@ -391,15 +391,14 @@
       return;
     }
 
-    // 忠实展示每一级：首页 + 全部祖先（不同层级即使同名也各自保留）+ 当前页。
-    // 不做“同名去重”：同名不同级是合法层级，去掉会丢失路径信息。
-    bc.appendChild(crumbItem('首页', '#/pages/' + HOME_KEY, false, 'fa-house'));
+    // 纯展示模式：首页 + 全部祖先（不同层级即使同名也各自保留）+ 当前页。
+    // 每级都不加超链接，只作当前位置指示。
+    bc.appendChild(crumbItem('首页', null, false, 'fa-house'));
 
     for (var i = 0; i < chain.length - 1; i++) {
       var node = chain[i];
       if (!node.title) continue;
-      var first = firstLeafKey(node);
-      bc.appendChild(crumbItem(node.title, first ? '#/pages/' + first : null, false));
+      bc.appendChild(crumbItem(node.title, null, false));
     }
     bc.appendChild(crumbItem(title, '', true));
   }
@@ -435,10 +434,34 @@
     if (out) out.addEventListener('click', function (e) { e.preventDefault(); logout(false); });
   }
 
+  // ---------- 主题切换（classic / light / grape） ----------
+  var THEME_KEY = 'app_theme';
+  var THEMES = ['classic', 'light', 'grape'];
+  function applyTheme(name) {
+    if (THEMES.indexOf(name) < 0) name = 'classic';
+    document.body.setAttribute('data-theme', name);
+    localStorage.setItem(THEME_KEY, name);
+    var items = document.querySelectorAll('#themeMenu [data-theme-val]');
+    for (var i = 0; i < items.length; i++) {
+      items[i].classList.toggle('active', items[i].getAttribute('data-theme-val') === name);
+    }
+  }
+  function initTheme() {
+    applyTheme(localStorage.getItem(THEME_KEY) || 'classic');
+    var menu = document.getElementById('themeMenu');
+    if (menu) {
+      menu.addEventListener('click', function (e) {
+        var it = e.target.closest('[data-theme-val]');
+        if (it) { e.preventDefault(); applyTheme(it.getAttribute('data-theme-val')); }
+      });
+    }
+  }
+
   // ---------- 后台主程序 ----------
   function initAdmin() {
     // 无 token 一律回登录页
     if (!localStorage.getItem(TOKEN_KEY)) { location.replace(LOGIN_URL); return; }
+    initTheme();
     mount = document.getElementById('pageContent');
     buildMenu();
     initUser();

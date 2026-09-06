@@ -8,7 +8,7 @@
      FontAwesome 只保留 amis 自带那一份，不再额外引入独立 all.min.css，避免字体重复下载。 -->
 <link rel="stylesheet" href="/admin/static/bootstrap/bootstrap.min.css">
 <link rel="stylesheet" href="/admin/static/amis/sdk.css">
-<link rel="stylesheet" href="/admin/static/common/app.css?v=20260906b">
+<link rel="stylesheet" href="/admin/static/common/app.css?v=20260906g">
 </head>
 <body class="app-shell" id="appShell">
 
@@ -30,11 +30,22 @@
         <i class="fa-regular fa-square"></i>
       </button>
 
+      <!-- 主题切换 -->
+      <div class="dropdown">
+        <button class="icon-btn dropdown-toggle" type="button" id="themeToggle"
+                data-bs-toggle="dropdown" aria-expanded="false" aria-label="切换主题" title="切换主题">
+          <i class="fa-solid fa-palette"></i>
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end" id="themeMenu">
+          <li><a class="dropdown-item" href="javascript:void(0)" data-theme-val="classic"><i class="fa-solid fa-circle me-2" style="color:#2f6fed"></i>经典蓝（深侧栏）</a></li>
+          <li><a class="dropdown-item" href="javascript:void(0)" data-theme-val="light"><i class="fa-solid fa-circle me-2" style="color:#0f9d8f"></i>清新浅色（青绿）</a></li>
+          <li><a class="dropdown-item" href="javascript:void(0)" data-theme-val="grape"><i class="fa-solid fa-circle me-2" style="color:#7c3aed"></i>商务紫（渐变侧栏）</a></li>
+        </ul>
+      </div>
+
       <div class="dropdown">
         <button class="btn d-flex align-items-center gap-2 border-0 dropdown-toggle" type="button"
                 id="userDropdown" data-bs-toggle="dropdown" aria-expanded="false">
-          <span class="d-inline-flex align-items-center justify-content-center rounded-circle text-white"
-                style="width:30px;height:30px;background:#2f6fed;font-size:13px;font-weight:600" id="topAvatar">管</span>
           <span class="user-name d-none d-md-inline" id="topUserName">管理员</span>
         </button>
         <ul class="dropdown-menu dropdown-menu-end">
@@ -70,6 +81,6 @@
 <script src="/admin/static/amis/sdk.min.js"></script>
 <!-- 菜单配置（独立文件，先于 app.js 加载，app.js 读取 window.APP_MENU） -->
 <script src="/admin/static/common/app_menu.js?v=20260906b"></script>
-<script src="/admin/static/common/app.js?v=20260906d"></script>
+<script src="/admin/static/common/app.js?v=20260906g"></script>
 </body>
 </html>
