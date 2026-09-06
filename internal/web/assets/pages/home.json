@@ -7,13 +7,13 @@
       "columns": [
         {
           "type": "card",
-          "header": { "title": "用户总数", "subTitle": "全部注册用户" },
+          "header": { "title": "用户管理", "subTitle": "账号与列表" },
           "body": "<a class='d-block text-decoration-none text-center py-3' href='#/pages/users.json'><i class='fa-solid fa-users' style='font-size:28px;color:#1f6feb'></i><div class='mt-2 text-secondary'>前往用户管理</div></a>"
         },
         {
           "type": "card",
-          "header": { "title": "访问日志", "subTitle": "系统操作留痕" },
-          "body": "<a class='d-block text-decoration-none text-center py-3' href='#/pages/logs-access.json'><i class='fa-solid fa-file-lines' style='font-size:28px;color:#2f6fed'></i><div class='mt-2 text-secondary'>前往访问日志</div></a>"
+          "header": { "title": "配置包管理", "subTitle": "配置包与状态" },
+          "body": "<a class='d-block text-decoration-none text-center py-3' href='#/pages/config-pack.json'><i class='fa-solid fa-box-archive' style='font-size:28px;color:#8b5cf6'></i><div class='mt-2 text-secondary'>前往配置包管理</div></a>"
         },
         {
           "type": "card",
@@ -22,8 +22,8 @@
         },
         {
           "type": "card",
-          "header": { "title": "基础配置", "subTitle": "站点与系统参数" },
-          "body": "<a class='d-block text-decoration-none text-center py-3' href='#/pages/config-base.json'><i class='fa-solid fa-gear' style='font-size:28px;color:#9b59b6'></i><div class='mt-2 text-secondary'>前往配置</div></a>"
+          "header": { "title": "配置管理", "subTitle": "配置列表与版本" },
+          "body": "<a class='d-block text-decoration-none text-center py-3' href='#/pages/config.json'><i class='fa-solid fa-file-code' style='font-size:28px;color:#0ea5e9'></i><div class='mt-2 text-secondary'>前往配置管理</div></a>"
         }
       ]
     }

@@ -9,6 +9,7 @@
       "url": "/api/v1/fields/list"
     },
     "perPage": 10,
+    "perPageAvailable": [10, 20, 50, 100],
     "pageField": "page",
     "perPageField": "page_size",
     "columns": [
@@ -62,14 +63,7 @@
                     "name": "type",
                     "label": "字段类型",
                     "required": true,
-                    "options": [
-                      { "label": "整数", "value": "int" },
-                      { "label": "浮点数", "value": "float" },
-                      { "label": "字符串", "value": "string" },
-                      { "label": "布尔值", "value": "bool" },
-                      { "label": "数组", "value": "array" },
-                      { "label": "对象", "value": "object" }
-                    ]
+                    "options": "$frag:_frags/field-type-options.json"
                   },
                   {
                     "type": "input-text",
@@ -85,10 +79,7 @@
                     "name": "status",
                     "label": "状态",
                     "required": true,
-                    "options": [
-                      { "label": "生效", "value": 1 },
-                      { "label": "废弃", "value": 2 }
-                    ]
+                    "options": "$frag:_frags/status-active-options.json"
                   },
                   { "type": "textarea", "name": "remark", "label": "备注", "maxLength": 2000 }
                 ]
@@ -99,13 +90,22 @@
             "type": "button",
             "label": "删除",
             "level": "danger",
-            "actionType": "ajax",
-            "confirmText": "确定删除该字段吗？",
-            "api": {
-              "method": "post",
-              "url": "/api/v1/fields/delete"
-            },
-            "reload": "fieldCrud"
+            "actionType": "dialog",
+            "dialog": {
+              "title": "删除确认",
+              "body": {
+                "type": "form",
+                "reload": "fieldCrud",
+                "api": {
+                  "method": "post",
+                  "url": "/api/v1/fields/delete",
+                  "data": { "id": "${id}" }
+                },
+                "body": [
+                  { "type": "alert", "body": "确认删除该字段？删除后不可恢复。", "level": "warning" }
+                ]
+              }
+            }
           }
         ]
       }
@@ -119,24 +119,14 @@
           "name": "type",
           "label": "类型",
           "clearable": true,
-          "options": [
-            { "label": "整数", "value": "int" },
-            { "label": "浮点数", "value": "float" },
-            { "label": "字符串", "value": "string" },
-            { "label": "布尔值", "value": "bool" },
-            { "label": "数组", "value": "array" },
-            { "label": "对象", "value": "object" }
-          ]
+          "options": "$frag:_frags/field-type-options.json"
         },
         {
           "type": "select",
           "name": "status",
           "label": "状态",
           "clearable": true,
-          "options": [
-            { "label": "生效", "value": 1 },
-            { "label": "废弃", "value": 2 }
-          ]
+          "options": "$frag:_frags/status-active-options.json"
         }
       ]
     },
@@ -176,14 +166,7 @@
                 "name": "type",
                 "label": "字段类型",
                 "required": true,
-                "options": [
-                  { "label": "整数", "value": "int" },
-                  { "label": "浮点数", "value": "float" },
-                  { "label": "字符串", "value": "string" },
-                  { "label": "布尔值", "value": "bool" },
-                  { "label": "数组", "value": "array" },
-                  { "label": "对象", "value": "object" }
-                ]
+                "options": "$frag:_frags/field-type-options.json"
               },
               {
                 "type": "input-text",
@@ -199,10 +182,7 @@
                 "name": "status",
                 "label": "状态",
                 "placeholder": "请选择状态（默认生效）",
-                "options": [
-                  { "label": "生效", "value": 1 },
-                  { "label": "废弃", "value": 2 }
-                ]
+                "options": "$frag:_frags/status-active-options.json"
               },
               { "type": "textarea", "name": "remark", "label": "备注", "maxLength": 2000 }
             ]
@@ -211,6 +191,7 @@
       }
     ],
     "footerToolbar": [
+      "switch-per-page",
       "pagination"
     ]
   }

@@ -127,6 +127,7 @@
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USERNAME_KEY);
     localStorage.removeItem('admin_user_id');
+    localStorage.removeItem('admin_remember'); // 旧版“记住我”残留，一并清理
     if (showTip && window.toastr && window.toastr.options) { /* SDK 自带弹层由 amis 处理，这里不重复 */ }
     location.href = LOGIN_URL;
   }
@@ -299,16 +300,84 @@
       '<div class="content-hint"><div class="spinner-border spinner-border-sm text-primary"></div> 加载中…</div>';
   }
 
-  // ---------- 加载页面 schema（标签页切换复用） ----------
+  // ---------- 加载页面 schema（标签页切换复用 + 片段合并） ----------
   var loadSeq = 0;
+  var schemaCache = {}; // A7：key → 已解析 schema，切回已访问页不再重复 fetch
+  var fragCache = {};   // A5：$frag 片段缓存
+
+  // 收集 schema 中所有 "$frag:路径" 引用（字段值或数组元素），路径相对 PAGES_BASE
+  function collectFragPaths(node, out) {
+    if (!node || typeof node !== 'object') return;
+    if (Array.isArray(node)) {
+      for (var i = 0; i < node.length; i++) {
+        if (typeof node[i] === 'string' && node[i].indexOf('$frag:') === 0) out.push(node[i].slice(6));
+        else collectFragPaths(node[i], out);
+      }
+      return;
+    }
+    for (var k in node) {
+      if (!Object.prototype.hasOwnProperty.call(node, k)) continue;
+      var v = node[k];
+      if (typeof v === 'string' && v.indexOf('$frag:') === 0) out.push(v.slice(6));
+      else if (v && typeof v === 'object') collectFragPaths(v, out);
+    }
+  }
+  function fetchFrag(path) {
+    if (fragCache[path] !== undefined) return Promise.resolve(fragCache[path]);
+    return fetch(PAGES_BASE + path).then(function (res) {
+      if (!res.ok) throw new Error('片段加载失败 HTTP ' + res.status + '（' + path + '）');
+      return res.json();
+    }).then(function (json) {
+      fragCache[path] = json;
+      return json;
+    });
+  }
+  // 把已缓存片段回填到 schema（原位替换字符串为 JSON 值）
+  function fillFrags(node) {
+    if (!node || typeof node !== 'object') return;
+    if (Array.isArray(node)) {
+      for (var i = 0; i < node.length; i++) {
+        if (typeof node[i] === 'string' && node[i].indexOf('$frag:') === 0) node[i] = fragCache[node[i].slice(6)];
+        else fillFrags(node[i]);
+      }
+      return;
+    }
+    for (var k in node) {
+      if (!Object.prototype.hasOwnProperty.call(node, k)) continue;
+      var v = node[k];
+      if (typeof v === 'string' && v.indexOf('$frag:') === 0) node[k] = fragCache[v.slice(6)];
+      else if (v && typeof v === 'object') fillFrags(v);
+    }
+  }
+  // 解析片段：收集 → 拉取（Promise.all）→ 回填
+  function resolveFrags(schema) {
+    var paths = [];
+    collectFragPaths(schema, paths);
+    var uniq = [];
+    paths.forEach(function (p) { if (uniq.indexOf(p) < 0) uniq.push(p); });
+    if (!uniq.length) return Promise.resolve(schema);
+    return Promise.all(uniq.map(fetchFrag)).then(function () {
+      fillFrags(schema);
+      return schema;
+    });
+  }
+
   function loadSchema(key) {
     showLoading();
     var seq = ++loadSeq; // 快速切换标签时丢弃过期响应，避免旧页面覆盖新页面
+    // A7：已访问页面直接使用内存 schema，避免重复请求与重建等待
+    if (schemaCache[key]) {
+      renderPage(schemaCache[key]);
+      return;
+    }
     fetch(PAGES_BASE + key).then(function (res) {
       if (!res.ok) throw new Error('页面加载失败 HTTP ' + res.status);
       return res.json();
     }).then(function (schema) {
+      return resolveFrags(schema);
+    }).then(function (schema) {
       if (seq !== loadSeq) return;
+      schemaCache[key] = schema;
       renderPage(schema);
     }).catch(function (err) {
       if (seq === loadSeq && mount) mount.innerHTML = '<div class="content-hint">' + err.message + '</div>';
@@ -461,7 +530,8 @@
         var x = document.createElement('span');
         x.className = 'tab-close';
         x.textContent = '×';
-        x.title = '关闭';
+        x.title = '关闭标签';
+        x.setAttribute('aria-label', '关闭标签');
         x.addEventListener('click', function (ev) { ev.stopPropagation(); closeTab(t.key); });
         btn.appendChild(x);
       }
@@ -626,7 +696,6 @@
       var username = document.getElementById('username').value.trim();
       var password = document.getElementById('password').value;
       if (!username || !password) return showAlert('请输入用户名和密码', 'error');
-      var remember = document.getElementById('remember') && document.getElementById('remember').checked;
       btn.disabled = true; btn.textContent = '登录中…';
       fetch('/api/v1/users/login', {
         method: 'POST',
@@ -635,7 +704,6 @@
       }).then(function (r) { return r.json(); }).then(function (d) {
         if (d.code === 0 && d.data && d.data.token) {
           localStorage.setItem(TOKEN_KEY, d.data.token);
-          if (remember) localStorage.setItem('admin_remember', '1');
           var u = d.data.user || {};
           localStorage.setItem(USERNAME_KEY, u.username || username);
           if (u.id) localStorage.setItem('admin_user_id', u.id);

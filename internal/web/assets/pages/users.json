@@ -3,11 +3,13 @@
   "title": "用户管理",
   "body": {
     "type": "crud",
+    "name": "usersCrud",
     "api": {
       "method": "get",
       "url": "/api/v1/users"
     },
     "perPage": 10,
+    "perPageAvailable": [10, 20, 50, 100],
     "pageField": "page",
     "perPageField": "page_size",
     "columns": [
@@ -29,6 +31,9 @@
       "reload",
       { "type": "button", "label": "新增用户", "level": "primary", "actionType": "link", "link": "#/pages/user-add.json" }
     ],
-    "footerToolbar": ["pagination"]
+    "footerToolbar": [
+      "switch-per-page",
+      "pagination"
+    ]
   }
 }

@@ -76,6 +76,15 @@ body { background: var(--c-body); color: var(--c-text); }
 }
 .icon-btn:hover { background: var(--c-accent-soft); color: var(--c-accent); }
 .user-name { font-size: 14px; color: var(--c-text); font-weight: 500; }
+/* 主题/用户下拉：当前项高亮跟随品牌主色（覆盖 Bootstrap 默认蓝） */
+.app-topbar .dropdown-menu .dropdown-item.active {
+  background: var(--c-accent);
+  color: #fff;
+}
+.app-topbar .dropdown-menu .dropdown-item.active i { color: inherit; }
+.app-topbar .dropdown-menu .dropdown-item.text-danger.active {
+  background: #dc2626;
+}
 
 /* ---------- 侧栏（树形） ---------- */
 .app-sidebar {

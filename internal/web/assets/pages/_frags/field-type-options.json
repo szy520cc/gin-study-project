@@ -1,0 +1,8 @@
+[
+  { "label": "整数", "value": "int" },
+  { "label": "浮点数", "value": "float" },
+  { "label": "字符串", "value": "string" },
+  { "label": "布尔值", "value": "bool" },
+  { "label": "数组", "value": "array" },
+  { "label": "对象", "value": "object" }
+]

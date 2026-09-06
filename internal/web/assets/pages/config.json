@@ -9,6 +9,7 @@
       "url": "/api/v1/configs/list"
     },
     "perPage": 10,
+    "perPageAvailable": [10, 20, 50, 100],
     "pageField": "page",
     "perPageField": "page_size",
     "columns": [
@@ -56,21 +57,14 @@
                     "name": "status",
                     "label": "状态",
                     "required": true,
-                    "options": [
-                      { "label": "待审核", "value": 0 },
-                      { "label": "生效", "value": 1 },
-                      { "label": "下线", "value": 2 }
-                    ]
+                    "options": "$frag:_frags/status-options.json"
                   },
                   {
                     "type": "select",
                     "name": "is_latest",
                     "label": "是否最新",
                     "required": true,
-                    "options": [
-                      { "label": "是", "value": 1 },
-                      { "label": "否", "value": 2 }
-                    ]
+                    "options": "$frag:_frags/is-latest-options.json"
                   },
                   { "type": "input-number", "name": "cut_num", "label": "切流量级", "step": 0.1, "min": 0 },
                   { "type": "input-number", "name": "cut_at", "label": "切流时间(Unix秒)", "min": 0 },
@@ -84,13 +78,22 @@
             "type": "button",
             "label": "删除",
             "level": "danger",
-            "actionType": "ajax",
-            "confirmText": "确定删除该配置吗？",
-            "api": {
-              "method": "post",
-              "url": "/api/v1/configs/delete"
-            },
-            "reload": "configCrud"
+            "actionType": "dialog",
+            "dialog": {
+              "title": "删除确认",
+              "body": {
+                "type": "form",
+                "reload": "configCrud",
+                "api": {
+                  "method": "post",
+                  "url": "/api/v1/configs/delete",
+                  "data": { "id": "${id}" }
+                },
+                "body": [
+                  { "type": "alert", "body": "确认删除该配置？删除后不可恢复。", "level": "warning" }
+                ]
+              }
+            }
           }
         ]
       }
@@ -105,11 +108,7 @@
           "name": "status",
           "label": "状态",
           "clearable": true,
-          "options": [
-            { "label": "待审核", "value": 0 },
-            { "label": "生效", "value": 1 },
-            { "label": "下线", "value": 2 }
-          ]
+          "options": "$frag:_frags/status-options.json"
         }
       ]
     },
@@ -163,21 +162,14 @@
                 "name": "status",
                 "label": "状态",
                 "placeholder": "默认待审核",
-                "options": [
-                  { "label": "待审核", "value": 0 },
-                  { "label": "生效", "value": 1 },
-                  { "label": "下线", "value": 2 }
-                ]
+                "options": "$frag:_frags/status-options.json"
               },
               {
                 "type": "select",
                 "name": "is_latest",
                 "label": "是否最新",
                 "placeholder": "默认是",
-                "options": [
-                  { "label": "是", "value": 1 },
-                  { "label": "否", "value": 2 }
-                ]
+                "options": "$frag:_frags/is-latest-options.json"
               },
               { "type": "input-number", "name": "cut_num", "label": "切流量级", "step": 0.1, "min": 0 },
               { "type": "input-number", "name": "cut_at", "label": "切流时间(Unix秒)", "min": 0 },
@@ -189,6 +181,7 @@
       }
     ],
     "footerToolbar": [
+      "switch-per-page",
       "pagination"
     ]
   }

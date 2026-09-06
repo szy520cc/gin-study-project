@@ -1,0 +1,5 @@
+[
+  { "label": "待审核", "value": 0 },
+  { "label": "生效", "value": 1 },
+  { "label": "下线", "value": 2 }
+]

@@ -9,42 +9,17 @@
       "url": "/api/v1/projects/list"
     },
     "perPage": 10,
+    "perPageAvailable": [10, 20, 50, 100],
     "pageField": "page",
     "perPageField": "page_size",
     "columns": [
-      {
-        "name": "id",
-        "label": "ID",
-        "width": 70
-      },
-      {
-        "name": "name",
-        "label": "项目名称"
-      },
-      {
-        "name": "logo",
-        "label": "项目标识"
-      },
-      {
-        "name": "status_text",
-        "label": "状态",
-        "width": 90
-      },
-      {
-        "name": "created_user",
-        "label": "创建人",
-        "width": 110
-      },
-      {
-        "name": "updated_user",
-        "label": "最后编辑",
-        "width": 110
-      },
-      {
-        "name": "updated_at_text",
-        "label": "更新时间",
-        "width": 170
-      },
+      { "name": "id", "label": "ID", "width": 70 },
+      { "name": "name", "label": "项目名称" },
+      { "name": "logo", "label": "项目标识" },
+      { "name": "status_text", "label": "状态", "width": 90 },
+      { "name": "created_user", "label": "创建人", "width": 110 },
+      { "name": "updated_user", "label": "最后编辑", "width": 110 },
+      { "name": "updated_at_text", "label": "更新时间", "width": 170 },
       {
         "type": "operation",
         "label": "操作",
@@ -69,36 +44,14 @@
                   "url": "/api/v1/projects/update"
                 },
                 "body": [
-                  {
-                    "type": "input-text",
-                    "name": "name",
-                    "label": "项目名称",
-                    "required": true,
-                    "maxLength": 200
-                  },
-                  {
-                    "type": "input-text",
-                    "name": "logo",
-                    "label": "项目标识",
-                    "required": true,
-                    "maxLength": 100,
-                    "placeholder": "唯一标识"
-                  },
+                  { "type": "input-text", "name": "name", "label": "项目名称", "required": true, "maxLength": 200 },
+                  { "type": "input-text", "name": "logo", "label": "项目标识", "required": true, "maxLength": 100, "placeholder": "唯一标识" },
                   {
                     "type": "select",
                     "name": "status",
                     "label": "状态",
                     "required": true,
-                    "options": [
-                      {
-                        "label": "生效",
-                        "value": 1
-                      },
-                      {
-                        "label": "废弃",
-                        "value": 2
-                      }
-                    ]
+                    "options": "$frag:_frags/status-active-options.json"
                   }
                 ]
               }
@@ -108,13 +61,22 @@
             "type": "button",
             "label": "删除",
             "level": "danger",
-            "actionType": "ajax",
-            "confirmText": "确定删除该项目吗？",
-            "api": {
-              "method": "post",
-              "url": "/api/v1/projects/delete"
-            },
-            "reload": "projectCrud"
+            "actionType": "dialog",
+            "dialog": {
+              "title": "删除确认",
+              "body": {
+                "type": "form",
+                "reload": "projectCrud",
+                "api": {
+                  "method": "post",
+                  "url": "/api/v1/projects/delete",
+                  "data": { "id": "${id}" }
+                },
+                "body": [
+                  { "type": "alert", "body": "确认删除该项目？删除后不可恢复。", "level": "warning" }
+                ]
+              }
+            }
           }
         ]
       }
@@ -122,26 +84,13 @@
     "filter": {
       "title": "筛选",
       "body": [
-        {
-          "type": "input-text",
-          "name": "name",
-          "label": "项目名称（模糊）"
-        },
+        { "type": "input-text", "name": "name", "label": "项目名称（模糊）" },
         {
           "type": "select",
           "name": "status",
           "label": "状态",
           "clearable": true,
-          "options": [
-            {
-              "label": "生效",
-              "value": 1
-            },
-            {
-              "label": "废弃",
-              "value": 2
-            }
-          ]
+          "options": "$frag:_frags/status-active-options.json"
         }
       ]
     },
@@ -164,35 +113,13 @@
               "url": "/api/v1/projects/add"
             },
             "body": [
-              {
-                "type": "input-text",
-                "name": "name",
-                "label": "项目名称",
-                "required": true,
-                "maxLength": 200
-              },
-              {
-                "type": "input-text",
-                "name": "logo",
-                "label": "项目标识",
-                "required": true,
-                "maxLength": 100,
-                "placeholder": "唯一标识，例如 web-admin"
-              },
+              { "type": "input-text", "name": "name", "label": "项目名称", "required": true, "maxLength": 200 },
+              { "type": "input-text", "name": "logo", "label": "项目标识", "required": true, "maxLength": 100, "placeholder": "唯一标识，例如 web-admin" },
               {
                 "type": "select",
                 "name": "status",
                 "label": "状态",
-                "options": [
-                  {
-                    "label": "生效",
-                    "value": 1
-                  },
-                  {
-                    "label": "废弃",
-                    "value": 2
-                  }
-                ]
+                "options": "$frag:_frags/status-active-options.json"
               }
             ]
           }
@@ -200,6 +127,7 @@
       }
     ],
     "footerToolbar": [
+      "switch-per-page",
       "pagination"
     ]
   }

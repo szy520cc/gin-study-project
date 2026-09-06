@@ -9,6 +9,7 @@
       "url": "/api/v1/config-packs/list"
     },
     "perPage": 10,
+    "perPageAvailable": [10, 20, 50, 100],
     "pageField": "page",
     "perPageField": "page_size",
     "columns": [
@@ -68,11 +69,7 @@
                     "name": "status",
                     "label": "状态",
                     "required": true,
-                    "options": [
-                      { "label": "待审核", "value": 0 },
-                      { "label": "生效", "value": 1 },
-                      { "label": "下线", "value": 2 }
-                    ]
+                    "options": "$frag:_frags/status-options.json"
                   },
                   { "type": "textarea", "name": "remark", "label": "备注", "maxLength": 2000 }
                 ]
@@ -83,13 +80,22 @@
             "type": "button",
             "label": "删除",
             "level": "danger",
-            "actionType": "ajax",
-            "confirmText": "确定删除该配置包吗？",
-            "api": {
-              "method": "post",
-              "url": "/api/v1/config-packs/delete"
-            },
-            "reload": "configPackCrud"
+            "actionType": "dialog",
+            "dialog": {
+              "title": "删除确认",
+              "body": {
+                "type": "form",
+                "reload": "configPackCrud",
+                "api": {
+                  "method": "post",
+                  "url": "/api/v1/config-packs/delete",
+                  "data": { "id": "${id}" }
+                },
+                "body": [
+                  { "type": "alert", "body": "确认删除该配置包？删除后不可恢复。", "level": "warning" }
+                ]
+              }
+            }
           }
         ]
       }
@@ -103,11 +109,7 @@
           "name": "status",
           "label": "状态",
           "clearable": true,
-          "options": [
-            { "label": "待审核", "value": 0 },
-            { "label": "生效", "value": 1 },
-            { "label": "下线", "value": 2 }
-          ]
+          "options": "$frag:_frags/status-options.json"
         }
       ]
     },
@@ -148,11 +150,7 @@
                 "name": "status",
                 "label": "状态",
                 "placeholder": "默认待审核",
-                "options": [
-                  { "label": "待审核", "value": 0 },
-                  { "label": "生效", "value": 1 },
-                  { "label": "下线", "value": 2 }
-                ]
+                "options": "$frag:_frags/status-options.json"
               },
               { "type": "textarea", "name": "remark", "label": "备注", "maxLength": 2000 }
             ]
@@ -161,6 +159,7 @@
       }
     ],
     "footerToolbar": [
+      "switch-per-page",
       "pagination"
     ]
   }
