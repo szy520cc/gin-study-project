@@ -148,6 +148,37 @@
     });
   }
 
+  // 给 amis-ui 的 Button 组件补「默认提示容器」。
+  // CRUD 内置按钮（刷新 / 点击选择显示列）是组件内部生成的，schema 无法逐个
+  // 配置 tooltipContainer（该字段是 Button 的组件 props，不是 embed 的 env）；
+  // 因此运行时直接改 Button.defaultProps，让所有按钮的 hover 提示都渲染并
+  // 定位到 #pageContent（CSS 已给其 position:relative 作定位包含块），
+  // 气泡锚定在按钮旁，不再外溢到 fixed 的侧栏区。
+  var btnTooltipPatched = false;
+  function patchButtonTooltipContainer() {
+    var req = window.amisRequire || (window.amis && window.amis.require);
+    if (typeof req !== 'function' || btnTooltipPatched) return;
+    function host() { return document.getElementById('pageContent') || document.body; }
+    function apply(mod) {
+      var btn = (mod && mod.Button) || (mod && mod.default && mod.default.Button);
+      if (!btn) return false;
+      btn.defaultProps = btn.defaultProps || {};
+      if (btn.defaultProps.tooltipContainer === undefined) btn.defaultProps.tooltipContainer = host;
+      return true;
+    }
+    function ok() { btnTooltipPatched = true; if (window.console) console.log('[shell] amis Button tooltipContainer -> #pageContent'); }
+    function fail() {
+      if (window.console) console.warn('[shell] 未能给 amis Button 注入 tooltipContainer');
+    }
+    try {
+      var m = req('amis-ui');
+      if (m && apply(m)) { ok(); return; }
+    } catch (e) { /* 同步拿不到再走 AMD 回调 */ }
+    try {
+      req(['amis-ui'], function (mod) { if (mod && apply(mod)) ok(); else fail(); }, fail);
+    } catch (e) { fail(); }
+  }
+
   // amis CRUD 默认 syncLocation=true：筛选/翻页时会改写地址栏 hash，
   // 进而触发应用层 hashchange 路由 → 整个页面被重建，表现为整页刷新。
   // 渲染前递归把页面里所有 CRUD 的 syncLocation 统一关掉，
@@ -175,6 +206,7 @@
     disableCrudLocationSync(schema); // 全局关闭检索/翻页的地址栏同步，保证纯局部静默加载
     getEmbed().then(function (embed) {
       try {
+        patchButtonTooltipContainer(); // amis-ui 就绪后给 Button 补默认提示容器
         embedApp = embed(
           el,
           schema,
@@ -189,7 +221,12 @@
               else if (name.indexOf('/pages/') >= 0) name = name.split('/pages/').pop();
               else if (name.charAt(0) === '/') name = name.replace(/^\/+/, '');
               if (/\.json$/.test(name)) location.hash = '#/pages/' + name;
-            }
+            },
+            // getModalContainer 属 env 契约（Dialog/Modal 渲染容器），保留：
+            // 弹层挂到主内容区，由 #pageContent 的 position:relative 统一收束。
+            // 注：tooltipContainer/popOverContainer 是组件 props、env 无效，
+            // 已通过 patchButtonTooltipContainer() 在组件层全局注入。
+            getModalContainer: function () { return document.getElementById('pageContent') || document.body; }
           }
         );
       } catch (err) {

@@ -168,6 +168,9 @@ body { background: var(--c-body); color: var(--c-text); }
   min-height: calc(100vh - var(--app-topbar-h));
   transition: margin-left .2s ease;
 }
+/* amis 弹层（Button hover 提示/下拉/Dialog）的定位包含块：
+   容器锁定在 #pageContent 内，气泡按内容区坐标定位，不会外溢到 fixed 侧栏 */
+#pageContent { position: relative; }
 
 /* ---------- 折叠态 ---------- */
 body.sidebar-collapsed .app-sidebar { width: var(--app-sidebar-w-collapsed); }
