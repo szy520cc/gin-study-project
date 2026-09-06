@@ -4,10 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Gin Study · 管理后台</title>
-<!-- 本地静态资源：Bootstrap 5.3.3（骨架）、amis 6.13（sdk 主题样式）、公共样式 -->
+<!-- 本地静态资源：Bootstrap 5.3.3（骨架）、amis 6.13（sdk.css 内含 cxd 主题与 FontAwesome）、公共样式。
+     FontAwesome 只保留 amis 自带那一份，不再额外引入独立 all.min.css，避免字体重复下载。 -->
 <link rel="stylesheet" href="/admin/static/bootstrap/bootstrap.min.css">
 <link rel="stylesheet" href="/admin/static/amis/sdk.css">
-<link rel="stylesheet" href="/admin/static/font-awesome/all.min.css">
 <link rel="stylesheet" href="/admin/static/common/app.css">
 </head>
 <body class="app-shell" id="appShell">
@@ -70,6 +70,8 @@
 <!-- 本地脚本：先 SDK、再公共逻辑 -->
 <script src="/admin/static/bootstrap/bootstrap.bundle.min.js"></script>
 <script src="/admin/static/amis/sdk.min.js"></script>
+<!-- 菜单配置（独立文件，先于 app.js 加载，app.js 读取 window.APP_MENU） -->
+<script src="/admin/static/common/app_menu.js"></script>
 <script src="/admin/static/common/app.js"></script>
 </body>
 </html>

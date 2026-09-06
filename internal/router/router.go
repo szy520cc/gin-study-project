@@ -262,10 +262,19 @@ func registerAdminUI(r *gin.Engine) {
 		c.Data(200, "application/json; charset=utf-8", data)
 	})
 
-	// 静态资源走 StaticFS：sdk.js / css / favicon 等。
-	// 注意要挂在 /admin/static 前缀下，否则 /admin/ 下的 GET 会和 StaticFS 抢路径
-	// —— gin 路由匹配按注册顺序，/admin/ 先注册就先命中。
-	r.StaticFS("/admin/static", http.FS(web.StaticFS()))
+	// 静态资源手动服务：http.FileServer + Cache-Control。
+	// 覆盖 gin.StaticFS 的原因：StaticFS 默认不带缓存头，首屏后每次刷新都要重新
+	// 协商/下载这些大体积资源（sdk.css/sdk.min.js 等）。这里给 1 小时浏览器缓存。
+	// 资源内容随每次 go:embed 重新构建，但 URL 不变，1h 对开发/内网足够；
+	// 若需要即时更新，发布时换用带版本号的资源路径即可。
+	assetServer := http.StripPrefix("/admin/static", http.FileServer(http.FS(web.StaticFS())))
+	serveAsset := func(c *gin.Context) {
+		c.Header("Cache-Control", "public, max-age=3600")
+		assetServer.ServeHTTP(c.Writer, c.Request)
+	}
+	// 与 gin.StaticFS 一致：同时注册 "/admin/static" 与 "/admin/static/*filepath"
+	r.GET("/admin/static", serveAsset)
+	r.GET("/admin/static/*filepath", serveAsset)
 }
 
 // mustSub 是 fs.Sub 的 panic 包装：embed.FS 在编译期已知子目录是否存在，

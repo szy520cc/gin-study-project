@@ -1,58 +1,16 @@
 /* =========================================================
    Gin Study 后台 · 公共脚本（index.html / login.html 共用）
-   仅一个 JS：token、鉴权 fetcher、菜单、hash 路由、页面渲染、登出
+   token、鉴权 fetcher、hash 路由、页面渲染、登出
+   菜单配置已抽离到独立文件 app_menu.js（window.APP_MENU）
    ========================================================= */
 'use strict';
 (function () {
   var TOKEN_KEY = 'admin_token';
   var USERNAME_KEY = 'admin_username';
 
-  // ---------- 菜单配置（key = pages 下的 schema 文件名） ----------
-  var MENU = [
-    {
-      section: '概览',
-      items: [{ title: '首页', key: 'home.json', icon: 'fa-gauge-high' }]
-    },
-    {
-      section: '项目管理',
-      items: [
-        { title: '项目管理', key: 'project.json', icon: 'fa-diagram-project' },
-        { title: '字段管理', key: 'field.json', icon: 'fa-list-check' },
-        { title: '配置包管理', key: 'config-pack.json', icon: 'fa-box-archive' },
-        { title: '配置管理', key: 'config.json', icon: 'fa-file-code' }
-      ]
-    },
-    {
-      section: '系统管理',
-      items: [
-        { title: '用户列表', key: 'users.json', icon: 'fa-users' },
-        { title: '新增用户', key: 'user-add.json', icon: 'fa-user-plus' }
-      ]
-    },
-    {
-      section: '日志审计',
-      items: [
-        { title: '访问日志', key: 'logs-access.json', icon: 'fa-file-lines' },
-        { title: '操作日志', key: 'logs-op.json', icon: 'fa-pen-to-square' }
-      ]
-    },
-    {
-      section: '系统配置',
-      items: [
-        { title: '基础配置', key: 'config-base.json', icon: 'fa-gear' },
-        { title: '邮箱配置', key: 'config-email.json', icon: 'fa-envelope' },
-        { title: '短信配置', key: 'config-sms.json', icon: 'fa-message' }
-      ]
-    },
-    {
-      section: '监控报表',
-      items: [
-        { title: '系统监控', key: 'monitor.json', icon: 'fa-chart-line' },
-        { title: '用户报表', key: 'report-users.json', icon: 'fa-chart-pie' },
-        { title: '运营报表', key: 'report-ops.json', icon: 'fa-chart-column' }
-      ]
-    }
-  ];
+  // 菜单配置独立在 app_menu.js（window.APP_MENU），改动菜单只动那个文件；
+  // 登录页未引入 app_menu.js 时为空数组，不影响登录流程。
+  var MENU = window.APP_MENU || [];
 
   var PAGES_BASE = '/admin/pages/';
   var LOGIN_URL = '/admin/login';
@@ -290,11 +248,27 @@
     var m = findInMenu(key);
     var title = (schema && schema.title) || (m && m.title) || key;
     document.title = title + ' · Gin Study';
+    // 用 DOM + textContent 构建面包屑，避免 schema title 进入 innerHTML
     var bc = document.getElementById('breadcrumb');
     if (bc) {
-      bc.innerHTML = '<li class="breadcrumb-item"><a href="#/pages/home.json">首页</a></li>' +
-        (m ? '<li class="breadcrumb-item">' + m.section + '</li>' : '') +
-        '<li class="breadcrumb-item active">' + title + '</li>';
+      bc.textContent = '';
+      var liHome = document.createElement('li');
+      liHome.className = 'breadcrumb-item';
+      var aHome = document.createElement('a');
+      aHome.href = '#/pages/home.json';
+      aHome.textContent = '首页';
+      liHome.appendChild(aHome);
+      bc.appendChild(liHome);
+      if (m) {
+        var liSection = document.createElement('li');
+        liSection.className = 'breadcrumb-item';
+        liSection.textContent = m.section;
+        bc.appendChild(liSection);
+      }
+      var liTitle = document.createElement('li');
+      liTitle.className = 'breadcrumb-item active';
+      liTitle.textContent = title;
+      bc.appendChild(liTitle);
     }
     var pt = document.getElementById('pageTitle');
     if (pt) pt.textContent = title;
