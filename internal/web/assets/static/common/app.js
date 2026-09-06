@@ -148,10 +148,31 @@
     });
   }
 
+  // amis CRUD 默认 syncLocation=true：筛选/翻页时会改写地址栏 hash，
+  // 进而触发应用层 hashchange 路由 → 整个页面被重建，表现为整页刷新。
+  // 渲染前递归把页面里所有 CRUD 的 syncLocation 统一关掉，
+  // 检索/翻页/增删改的数据刷新全部只走组件内部局部加载（静默）。
+  function disableCrudLocationSync(node) {
+    if (!node || typeof node !== 'object') return;
+    if (Array.isArray(node)) {
+      for (var i = 0; i < node.length; i++) disableCrudLocationSync(node[i]);
+      return;
+    }
+    var t = node.type;
+    if ((t === 'crud' || t === 'crud2') && node.syncLocation === undefined) node.syncLocation = false;
+    for (var k in node) {
+      if (Object.prototype.hasOwnProperty.call(node, k) && k !== 'syncLocation') {
+        var v = node[k];
+        if (v && typeof v === 'object') disableCrudLocationSync(v);
+      }
+    }
+  }
+
   function renderPage(schema) {
     var el = document.getElementById('pageContent');
     if (!el || !schema) return;
     el.innerHTML = '';
+    disableCrudLocationSync(schema); // 全局关闭检索/翻页的地址栏同步，保证纯局部静默加载
     getEmbed().then(function (embed) {
       try {
         embedApp = embed(
@@ -207,11 +228,16 @@
   var tabs = []; // [{key,title}]，首页固定不可关闭，保证至少存在一个标签
   var activeKey = '';
 
-  function currentKey() {
-    var h = location.hash;
+  // pathOf：从完整 hash（可能带 amis 筛选/分页 query）里取出页面 key（纯文件名）。
+  // 例如 '#/pages/field.json?status=1&page=1' → 'field.json'。
+  function pathOf(hashStr) {
+    var h = hashStr || location.hash;
+    var q = h.indexOf('?');
+    if (q >= 0) h = h.slice(0, q);
     if (h && h.indexOf('#/pages/') === 0) return h.slice('#/pages/'.length);
     return HOME_KEY;
   }
+  function currentKey() { return pathOf(location.hash); }
   function leafTitle(key) {
     var chain = findChain(key);
     if (chain && chain.length) return chain[chain.length - 1].title;
@@ -420,7 +446,12 @@
     else location.hash = target; // 触发 hashchange → navigate
   }
   function navigate() {
-    applyKey(currentKey());
+    var key = pathOf(location.hash);
+    // amis CRUD 默认 syncLocation：筛选/翻页时会在 hash 上追加查询串，但页面路径没变。
+    // 此时只能“静默同步”，绝不能重建页面，否则每次检索都像整页跳转/刷新，
+    // 标签页还会被拼成 field.json?status=1&page=1 之类、菜单高亮失效。
+    if (key === activeKey && tabs.length) return;
+    applyKey(key);
   }
 
   // ---------- 用户区 ----------
@@ -436,7 +467,7 @@
 
   // ---------- 主题切换（classic / light / grape） ----------
   var THEME_KEY = 'app_theme';
-  var THEMES = ['classic', 'light', 'grape'];
+  var THEMES = ['classic', 'light', 'grape', 'ocean', 'sunset', 'forest'];
   function applyTheme(name) {
     if (THEMES.indexOf(name) < 0) name = 'classic';
     document.body.setAttribute('data-theme', name);

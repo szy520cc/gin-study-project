@@ -101,7 +101,7 @@ type FieldListRequest struct {
 	ProjectID string `form:"project_id" binding:"omitempty,max=100"`
 	Name      string `form:"name" binding:"omitempty,max=200"`
 	Type      string `form:"type" binding:"omitempty,oneof=int float string bool array object"`
-	Status    *uint8 `form:"status" binding:"omitempty,oneof=1 2"`
+	Status    *uint8 `form:"status" binding:"omitempty"`
 }
 
 // FieldQueryRequest 按主键查询（query 传 id）

@@ -98,7 +98,12 @@ func DeleteConfig(ctx context.Context, id uint64) error {
 func ListConfigs(ctx context.Context, req *model.ConfigListRequest) ([]*model.ConfigResponse, int64, error) {
 	page, pageSize := model.NormalizePage(req.Page, req.PageSize)
 
-	list, total, err := data.ListConfigs(ctx, req.ConfigPackID, req.Name, req.Type, req.Status, req.IsLatest, page, pageSize)
+	// 筛选时 is_latest=0 视为“不过滤”，避免残留/清空参数触发 400
+	var il *uint8
+	if req.IsLatest != nil && *req.IsLatest != 0 {
+		il = req.IsLatest
+	}
+	list, total, err := data.ListConfigs(ctx, req.ConfigPackID, req.Name, req.Type, req.Status, il, page, pageSize)
 	if err != nil {
 		return nil, 0, err
 	}

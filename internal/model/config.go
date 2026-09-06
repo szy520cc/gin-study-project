@@ -114,7 +114,7 @@ type ConfigListRequest struct {
 	Name         string `form:"name" binding:"omitempty,max=200"`
 	Type         string `form:"type" binding:"omitempty,max=50"`
 	Status       *uint8 `form:"status" binding:"omitempty,oneof=0 1 2"`
-	IsLatest     *uint8 `form:"is_latest" binding:"omitempty,oneof=1 2"`
+	IsLatest     *uint8 `form:"is_latest" binding:"omitempty"`
 }
 
 // ConfigQueryRequest 按主键查询（query 传 id）

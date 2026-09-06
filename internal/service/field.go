@@ -118,7 +118,12 @@ func DeleteField(ctx context.Context, id uint64) error {
 func ListFields(ctx context.Context, req *model.FieldListRequest) ([]*model.FieldResponse, int64, error) {
 	page, pageSize := model.NormalizePage(req.Page, req.PageSize)
 
-	list, total, err := data.ListFields(ctx, req.ProjectID, req.Name, req.Type, req.Status, page, pageSize)
+	// 筛选时 status=0 视为“不过滤”，避免残留/清空参数触发 400
+	var st *uint8
+	if req.Status != nil && *req.Status != 0 {
+		st = req.Status
+	}
+	list, total, err := data.ListFields(ctx, req.ProjectID, req.Name, req.Type, st, page, pageSize)
 	if err != nil {
 		return nil, 0, err
 	}

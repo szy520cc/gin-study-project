@@ -1,16 +1,14 @@
 /* =========================================================
-   Gin Study 后台 · 公共样式（index/login 共用，布局 + 三套主题）
+   Gin Study 后台 · 公共样式（index/login 共用，布局 + 多套主题）
    骨架 = Bootstrap 5.3；配色通过 CSS 变量实现。
-   主题通过 <body data-theme="classic|light|grape"> 切换，
-   app.js 顶栏“主题”下拉写入并持久化 localStorage。
+   主题通过 <body data-theme="key"> 切换，顶栏“主题”下拉写入并持久化。
    ========================================================= */
 :root {
-  /* 布局尺寸 */
   --app-topbar-h: 56px;
   --app-sidebar-w: 232px;
   --app-sidebar-w-collapsed: 64px;
 
-  /* ---------- 主题 classic（默认，深侧栏 + 清爽蓝） ---------- */
+  /* ---------- classic（默认，深侧栏 + 清爽蓝） ---------- */
   --c-body: #f0f2f5;
   --c-panel: #fff;
   --c-border: #e4e7ed;
@@ -139,7 +137,7 @@ body { background: var(--c-body); color: var(--c-text); }
 }
 .page-tab .tab-close:hover { opacity: 1; background: rgba(0, 0, 0, .18); }
 
-/* ---------- 动态面包屑 ---------- */
+/* ---------- 动态面包屑（纯展示） ---------- */
 .page-head { margin-bottom: 12px; }
 .page-head .breadcrumb {
   display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px;
@@ -155,7 +153,6 @@ body { background: var(--c-body); color: var(--c-text); }
   content: "/"; padding: 0 2px; color: var(--c-sep); font-weight: 400;
 }
 .page-head .breadcrumb-item > i { font-size: 11px; color: var(--c-fa-muted); }
-/* 纯展示：无超链接，仅当前页高亮成胶囊 */
 .page-head .breadcrumb-item.active {
   display: inline-flex; align-items: center; gap: 5px;
   color: var(--c-accent); font-weight: 600;
@@ -205,7 +202,7 @@ body.sidebar-collapsed .side-menu > .menu-tree > .menu-li > .menu-parent {
 .app-toast-error { background: #dc2626; }
 
 /* =========================================================
-   主题二：light（清新浅色，青绿主色）
+   主题：light（清新浅色 · 青绿）
    ========================================================= */
 body[data-theme="light"] {
   --c-body: #f4f7f6;
@@ -232,7 +229,6 @@ body[data-theme="light"] {
   --c-shadow: rgba(15, 118, 110, .06);
   --c-focus-ring: rgba(15, 157, 143, .18);
 }
-/* 浅色侧栏用文字主色 hover，不用反白 */
 body[data-theme="light"] .app-sidebar { border-right: 1px solid var(--c-sidebar-line); }
 body[data-theme="light"] .side-menu .menu-item:hover {
   color: var(--c-accent); background: var(--c-sidebar-hover);
@@ -243,7 +239,7 @@ body[data-theme="light"] .side-menu .menu-leaf.active {
 }
 
 /* =========================================================
-   主题三：grape（商务紫，渐变侧栏 + 品牌紫）
+   主题：grape（商务紫 · 渐变侧栏）
    ========================================================= */
 body[data-theme="grape"] {
   --c-body: #f5f4fb;
@@ -282,10 +278,113 @@ body[data-theme="grape"] .icon-btn:hover {
 }
 
 /* =========================================================
-   方案A · amis 亮色全局联动
-   把外壳主题的主色（--c-accent）同步给 amis 渲染的主体组件：
-   primary 按钮 / 分页当前页 / 输入框聚焦 / 选中态。
-   危险红等语义色保留 amis 默认，避免误读。
+   主题：ocean（深海蓝 · 清爽天空蓝主色）
+   ========================================================= */
+body[data-theme="ocean"] {
+  --c-body: #eef4fb;
+  --c-panel: #ffffff;
+  --c-border: #dce7f5;
+  --c-text: #1f2f45;
+  --c-text-muted: #5c7590;
+  --c-link: #4a6a8a;
+
+  --c-accent: #0ea5e9;
+  --c-accent-strong: #0284c7;
+  --c-accent-soft: #e0f2fe;
+
+  --c-topbar-bg: #ffffff;
+
+  --c-sidebar-bg: #0e2a47;
+  --c-sidebar-text: #b9cfe6;
+  --c-sidebar-strong: #e6eff8;
+  --c-sidebar-hover: rgba(255, 255, 255, .07);
+  --c-sidebar-line: rgba(255, 255, 255, .08);
+
+  --c-sep: #c6d9ec;
+  --c-fa-muted: #90a8c4;
+  --c-shadow: rgba(14, 165, 233, .08);
+  --c-focus-ring: rgba(14, 165, 233, .2);
+}
+body[data-theme="ocean"] .app-topbar .navbar-brand .brand-badge {
+  background: linear-gradient(135deg, #0ea5e9, #22d3ee);
+}
+body[data-theme="ocean"] .icon-btn:hover {
+  background: #e0f2fe; color: #0284c7;
+}
+
+/* =========================================================
+   主题：sunset（暖阳橙 · 温暖橙主色）
+   ========================================================= */
+body[data-theme="sunset"] {
+  --c-body: #fbf3ea;
+  --c-panel: #ffffff;
+  --c-border: #f0dfd0;
+  --c-text: #483a2c;
+  --c-text-muted: #96714f;
+  --c-link: #8a5a32;
+
+  --c-accent: #f97316;
+  --c-accent-strong: #ea580c;
+  --c-accent-soft: #ffe9d8;
+
+  --c-topbar-bg: #ffffff;
+
+  --c-sidebar-bg: #3a2a15;
+  --c-sidebar-text: #e0c9a6;
+  --c-sidebar-strong: #f6e8d3;
+  --c-sidebar-hover: rgba(255, 255, 255, .07);
+  --c-sidebar-line: rgba(255, 255, 255, .09);
+
+  --c-sep: #e5cfb8;
+  --c-fa-muted: #bd9c78;
+  --c-shadow: rgba(249, 115, 22, .1);
+  --c-focus-ring: rgba(249, 115, 22, .22);
+}
+body[data-theme="sunset"] .app-topbar .navbar-brand .brand-badge {
+  background: linear-gradient(135deg, #f97316, #f59e0b);
+}
+body[data-theme="sunset"] .icon-btn:hover {
+  background: #ffe9d8; color: #ea580c;
+}
+
+/* =========================================================
+   主题：forest（森林绿 · 自然绿主色）
+   ========================================================= */
+body[data-theme="forest"] {
+  --c-body: #f0f5ef;
+  --c-panel: #ffffff;
+  --c-border: #dce8db;
+  --c-text: #22381f;
+  --c-text-muted: #5f7a5a;
+  --c-link: #4a6e43;
+
+  --c-accent: #16a34a;
+  --c-accent-strong: #15803d;
+  --c-accent-soft: #e3f3e6;
+
+  --c-topbar-bg: #ffffff;
+
+  --c-sidebar-bg: #122b1b;
+  --c-sidebar-text: #bcd6c4;
+  --c-sidebar-strong: #e4f1e8;
+  --c-sidebar-hover: rgba(255, 255, 255, .07);
+  --c-sidebar-line: rgba(255, 255, 255, .08);
+
+  --c-sep: #cddcc9;
+  --c-fa-muted: #90ac93;
+  --c-shadow: rgba(22, 163, 74, .08);
+  --c-focus-ring: rgba(22, 163, 74, .2);
+}
+body[data-theme="forest"] .app-topbar .navbar-brand .brand-badge {
+  background: linear-gradient(135deg, #16a34a, #4ade80);
+}
+body[data-theme="forest"] .icon-btn:hover {
+  background: #e3f3e6; color: #15803d;
+}
+
+/* =========================================================
+   amis 亮色全局联动：把主题主色同步给 amis 主体组件
+   （primary 按钮 / 文字按钮 / 聚焦 / 分页 / 链接）
    ========================================================= */
 body[data-theme] .amis-scope .cxd-Button--primary {
   background: var(--c-accent) !important;
@@ -300,13 +399,11 @@ body[data-theme] .amis-scope .cxd-Button--primary.is-active {
   background: var(--c-accent-strong) !important;
   border-color: var(--c-accent-strong) !important;
 }
-/* 行内文字类按钮（如“编辑”）跟随主色 */
 body[data-theme] .amis-scope .cxd-Button--link,
 body[data-theme] .amis-scope .cxd-Button--link:not(:disabled):hover,
 body[data-theme] .amis-scope .cxd-Button--link:not(:disabled):active {
   color: var(--c-accent) !important;
 }
-/* 输入控件聚焦环跟随主色 */
 body[data-theme] .amis-scope .cxd-TextControl.is-focused > .cxd-TextControl-input,
 body[data-theme] .amis-scope .cxd-TextControl-input:focus,
 body[data-theme] .amis-scope .cxd-Select.is-focused > .cxd-Select-input,
@@ -314,14 +411,12 @@ body[data-theme] .amis-scope .cxd-Select .cxd-Select-input:focus {
   border-color: var(--c-accent) !important;
   box-shadow: 0 0 0 2px var(--c-focus-ring) !important;
 }
-/* 分页当前页跟随主色 */
 body[data-theme] .amis-scope .cxd-Pagination-item.is-active a,
 body[data-theme] .amis-scope .cxd-Pagination-item.is-active {
   background: var(--c-accent) !important;
   border-color: var(--c-accent) !important;
   color: #fff !important;
 }
-/* 链接与“文字主色”场景跟随 */
 body[data-theme] .amis-scope a {
   color: var(--c-accent);
 }

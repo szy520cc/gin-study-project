@@ -74,7 +74,7 @@ type ProjectListRequest struct {
 	PageSize int    `form:"page_size" binding:"omitempty,min=1,max=100"`
 	Name     string `form:"name" binding:"omitempty,max=200"`
 	// Status 用指针区分「不筛选」与「筛选生效(1)」
-	Status *uint8 `form:"status" binding:"omitempty,oneof=1 2"`
+	Status *uint8 `form:"status" binding:"omitempty"`
 }
 
 // ProjectResponse 项目响应
