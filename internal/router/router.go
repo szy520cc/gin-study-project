@@ -125,6 +125,12 @@ func registerAPIRoutes(r *gin.Engine, cfg *config.Config) {
 	registerField(v1, auth)
 	registerConfigPack(v1, auth)
 	registerConfig(v1, auth)
+	registerEngine(v1)
+}
+
+// registerEngine 规则执行引擎接口（供程序调用，不挂 auth，见 controller.Eval 安全说明）
+func registerEngine(g *gin.RouterGroup) {
+	g.POST("/engine/eval", controller.Eval)
 }
 
 // registerUser 用户模块路由
@@ -205,6 +211,14 @@ func registerConfig(g *gin.RouterGroup, auth gin.HandlerFunc) {
 		configs.POST("/delete", controller.DeleteConfig)
 		configs.GET("/list", controller.ListConfigs)
 		configs.GET("/detail", controller.GetConfig)
+		// 规则相关（挂在 config 下）
+		configs.POST("/rule/add", controller.CreateRuleConfig)
+		configs.POST("/rule/save", controller.SaveRule)
+		configs.GET("/rule/detail", controller.GetRule)
+		configs.POST("/testrun", controller.TestRun)
+		// 发布管理
+		configs.POST("/publish", controller.Publish)
+		configs.POST("/cutprogress", controller.CutProgress)
 	}
 }
 

@@ -42,6 +42,7 @@ type Config struct {
 	CutNum       float64 `json:"cut_num" gorm:"type:double;not null;default:0"`
 	CutAt        int64   `json:"cut_at" gorm:"type:int unsigned;not null;default:0"`
 	CutVersion   string  `json:"cut_version" gorm:"type:varchar(50);not null;default:''"`
+	CutBy        string  `json:"cut_by" gorm:"type:varchar(50);not null;default:''"`
 }
 
 // TableName 表名（DDL 表名 config）
@@ -146,6 +147,7 @@ type ConfigResponse struct {
 	CutAt        int64   `json:"cut_at"`
 	CutAtText    string  `json:"cut_at_text"`
 	CutVersion   string  `json:"cut_version"`
+	CutBy        string  `json:"cut_by"`
 }
 
 // ToResponse 转响应
@@ -173,5 +175,6 @@ func (c *Config) ToResponse() *ConfigResponse {
 		CutAt:         c.CutAt,
 		CutAtText:     formatUnix(c.CutAt),
 		CutVersion:    c.CutVersion,
+		CutBy:         c.CutBy,
 	}
 }

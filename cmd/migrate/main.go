@@ -72,6 +72,7 @@ func main() {
 		&model.Field{},
 		&model.ConfigPack{},
 		&model.Config{},
+		&model.Rule{},
 	}
 
 	if *drop {

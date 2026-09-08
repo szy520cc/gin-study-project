@@ -186,3 +186,18 @@ var (
 	ErrConfigNotFound         = New(80001, "配置不存在", http.StatusNotFound)
 	ErrConfigLogoVersionExists = New(80002, "配置版本已存在", http.StatusBadRequest)
 )
+
+// 规则相关错误
+var (
+	ErrRuleNotFound      = New(90001, "规则不存在", http.StatusNotFound)
+	ErrRuleInvalid       = New(90002, "规则内容不合法", http.StatusBadRequest)
+	ErrRuleExecuteFailed = New(90003, "规则执行失败", http.StatusInternalServerError)
+)
+
+// 规则发布相关错误
+var (
+	ErrConfigAlreadyActive  = New(90010, "配置已生效，不能重复发布", http.StatusBadRequest)
+	ErrConfigStatusInvalid  = New(90011, "配置状态不合法", http.StatusBadRequest)
+	ErrCutNumInvalid        = New(90012, "切流比例必须在 (0,1) 之间", http.StatusBadRequest)
+	ErrConfigNoActiveVersion = New(90013, "无生效版本，无法切流", http.StatusBadRequest)
+)

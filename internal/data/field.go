@@ -22,6 +22,30 @@ func GetFieldByID(ctx context.Context, id uint64) (*model.Field, error) {
 	return &f, nil
 }
 
+// GetFieldsByIDs 批量按主键取字段（规则执行前按 bind_var 查指标元信息）。
+// 保持输入顺序；某个 ID 查不到时跳过（不整体报错，由上层决定是否提示）。
+func GetFieldsByIDs(ctx context.Context, ids []int64) ([]*model.Field, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	var list []*model.Field
+	if err := connDb(ctx).Where("id IN ?", ids).Find(&list).Error; err != nil {
+		return nil, err
+	}
+	// 按 ids 顺序重排，保证返回顺序与 bind_var 一致
+	byID := make(map[uint64]*model.Field, len(list))
+	for _, f := range list {
+		byID[f.ID] = f
+	}
+	out := make([]*model.Field, 0, len(ids))
+	for _, id := range ids {
+		if f, ok := byID[uint64(id)]; ok {
+			out = append(out, f)
+		}
+	}
+	return out, nil
+}
+
 // UpdateField 整行更新可编辑列
 func UpdateField(ctx context.Context, id uint64, f *model.Field) (int64, error) {
 	res := connDb(ctx).Model(&model.Field{}).

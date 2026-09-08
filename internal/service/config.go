@@ -8,6 +8,7 @@ import (
 	"myproject/internal/data"
 	"myproject/internal/model"
 	"myproject/pkg/errcode"
+	"myproject/pkg/transaction"
 )
 
 // CreateConfig 创建配置。
@@ -86,12 +87,17 @@ func UpdateConfig(ctx context.Context, id uint64, username string, req *model.Up
 	return nil
 }
 
-// DeleteConfig 删除配置
+// DeleteConfig 删除配置（联动删除其规则子表，避免孤儿数据）
 func DeleteConfig(ctx context.Context, id uint64) error {
 	if _, err := getConfig(ctx, id); err != nil {
 		return err
 	}
-	return data.DeleteConfig(ctx, id)
+	return transaction.Do(ctx, func(ctx context.Context) error {
+		if err := data.DeleteRuleByConfigID(ctx, id); err != nil {
+			return err
+		}
+		return data.DeleteConfig(ctx, id)
+	})
 }
 
 // ListConfigs 分页查询配置

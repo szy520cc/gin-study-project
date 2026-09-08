@@ -1,0 +1,5 @@
+[
+  { "label": "审核结果（通过/拒绝/送审）", "value": "pass_reject_review" },
+  { "label": "命中结果（命中/未命中）", "value": "hit_result" },
+  { "label": "JSON 结果", "value": "json" }
+]
