@@ -77,6 +77,7 @@ type CreateRuleConfigRequest struct {
 // RuleResponse 规则响应（含编译后脚本 + 原文 + 引用指标详情）。
 type RuleResponse struct {
 	ConfigID        uint64           `json:"config_id"`
+	ProjectID       string           `json:"project_id"`       // 规则所属项目（编辑器按项目过滤字段用）
 	Rule            string           `json:"rule"`             // 编译后 Starlark 成品
 	RuleSource      string           `json:"rule_source"`      // 占位符原文（供编辑器回显）
 	ConditionConfig string           `json:"condition_config"` // 占位符原文 JSON（含 bind_var）

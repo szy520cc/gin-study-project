@@ -39,7 +39,7 @@
                 "initApi": {
                   "method": "get",
                   "url": "/api/v1/configs/rule/detail?id=${id}",
-                  "adaptor": "return { data: { rule: payload.data.rule_source || '', result_type: payload.data.result_type || 'pass_reject_review' } };"
+                  "adaptor": "window.RuleEditorContext = window.RuleEditorContext || {}; window.RuleEditorContext.projectId = payload.data.project_id || ''; return { data: { rule: payload.data.rule_source || '', result_type: payload.data.result_type || 'pass_reject_review' } };"
                 },
                 "api": {
                   "method": "post",
@@ -52,8 +52,8 @@
                     "name": "rule",
                     "label": "规则（Starlark）",
                     "required": true,
-                    "rows": 12,
-                    "description": "用 ##指标ID**解析路径## 引用指标，如 if ##209**material.vertical_type## in (0,1,5): return 1。脚本末尾必须给 result 赋值。"
+                    "rows": 16,
+                    "description": "键入 control 快捷插入字段；Tab 缩进。字段以 ##字段ID**解析路径## 形式保存，示例：if ##209**material.vertical_type## in (0,1,5): return 1。脚本末尾必须给 result 赋值。"
                   },
                   {
                     "type": "select",
@@ -80,7 +80,7 @@
                 "initApi": {
                   "method": "get",
                   "url": "/api/v1/configs/rule/detail?id=${id}",
-                  "adaptor": "return { data: { rule: payload.data.rule_source || '', result_type: payload.data.result_type || 'pass_reject_review', data: '{}' } };"
+                  "adaptor": "window.RuleEditorContext = window.RuleEditorContext || {}; window.RuleEditorContext.projectId = payload.data.project_id || ''; return { data: { rule: payload.data.rule_source || '', result_type: payload.data.result_type || 'pass_reject_review', data: '{}' } };"
                 },
                 "api": {
                   "method": "post",
@@ -93,7 +93,7 @@
                     "name": "rule",
                     "label": "规则（可临时修改后直接验证）",
                     "required": true,
-                    "rows": 8
+                    "rows": 10
                   },
                   { "type": "hidden", "name": "result_type" },
                   {
@@ -192,6 +192,16 @@
                   "method": "get",
                   "url": "/api/v1/projects/list?page=1&page_size=100",
                   "adaptor": "return {options:(payload.data.items||[]).map(function(it){return {label:it.name, value:String(it.id)}})};"
+                },
+                "onEvent": {
+                  "change": {
+                    "actions": [
+                      {
+                        "actionType": "custom",
+                        "script": "window.RuleEditorContext=window.RuleEditorContext||{};window.RuleEditorContext.projectId=event.data.value||'';"
+                      }
+                    ]
+                  }
                 }
               },
               {
@@ -219,8 +229,8 @@
                 "name": "rule",
                 "label": "规则（Starlark）",
                 "required": true,
-                "rows": 12,
-                "description": "用 ##指标ID**解析路径## 引用指标，如 if ##209**material.vertical_type## in (0,1,5): return 1。脚本末尾必须给 result 赋值。版本号由系统自动生成。"
+                "rows": 16,
+                "description": "键入 control 快捷插入字段；Tab 缩进。字段以 ##字段ID**解析路径## 形式保存，示例：if ##209**material.vertical_type## in (0,1,5): return 1。脚本末尾必须给 result 赋值。版本号由系统自动生成。"
               },
               { "type": "textarea", "name": "remark", "label": "备注", "maxLength": 2000 }
             ]

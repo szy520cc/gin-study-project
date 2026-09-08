@@ -230,6 +230,7 @@ func buildRuleResponse(c *model.Config, ruleScript, conditionConfig string, bind
 	}
 	return &model.RuleResponse{
 		ConfigID:        c.ID,
+		ProjectID:       c.ProjectID,
 		Rule:            ruleScript,
 		RuleSource:      extractRuleSource(conditionConfig),
 		ConditionConfig: conditionConfig,

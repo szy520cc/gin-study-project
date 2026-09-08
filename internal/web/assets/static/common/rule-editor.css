@@ -1,0 +1,140 @@
+/* =========================================================
+   Starlark 规则编辑器（零依赖）：textarea 之上叠加高亮层/行号/变量下拉
+   配色沿用 app.css 的主题变量，随主题切换自动适配。
+   ========================================================= */
+.re-wrap {
+  --re-border: var(--c-border, #d8dee9);
+  --re-panel: var(--c-panel, #fff);
+  --re-text: var(--c-text, #1f2937);
+  --re-muted: var(--c-text-muted, #6b7280);
+  --re-accent: var(--c-accent, #2f6fed);
+  --re-font: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --re-lh: 20px;
+  --re-pad-y: 10px;
+  --re-pad-x: 12px;
+  border: 1px solid var(--re-border);
+  border-radius: 6px;
+  background: var(--re-panel);
+  overflow: hidden;
+}
+.re-toolbar {
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--re-muted);
+  background: rgba(47, 111, 237, .04);
+  border-bottom: 1px solid var(--re-border);
+}
+.re-toolbar b { color: var(--re-accent); font-weight: 600; }
+.re-main { display: flex; align-items: stretch; }
+.re-gutter {
+  flex: 0 0 46px;
+  width: 46px;
+  padding: var(--re-pad-y) 8px var(--re-pad-y) 0;
+  text-align: right;
+  font: 13px / var(--re-lh) var(--re-font);
+  color: var(--re-muted);
+  background: rgba(15, 23, 42, .03);
+  border-right: 1px solid var(--re-border);
+  overflow: hidden;
+  user-select: none;
+  white-space: pre;
+}
+.re-gutter span { display: block; }
+.re-gutter span.re-active { color: var(--re-accent); font-weight: 600; }
+.re-layers { position: relative; flex: 1 1 auto; min-width: 0; }
+.re-highlight {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: var(--re-pad-y) var(--re-pad-x);
+  font: 13px / var(--re-lh) var(--re-font);
+  white-space: pre;
+  tab-size: 4;
+  overflow: auto;
+  pointer-events: none;
+  color: var(--re-text);
+}
+.re-layers > textarea {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-height: 220px;
+  margin: 0;
+  padding: var(--re-pad-y) var(--re-pad-x);
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--re-text);
+  font: 13px / var(--re-lh) var(--re-font);
+  white-space: pre;
+  tab-size: 4;
+  overflow: auto;
+  resize: vertical;
+}
+/* 语法着色 */
+.re-kw { color: #7c3aed; font-weight: 600; }
+.re-func { color: #0f9d8f; }
+.re-str { color: #c2410c; }
+.re-num { color: #b45309; }
+.re-comment { color: #94a3b8; font-style: italic; }
+/* 变量占位符胶囊（##id**path## → 只显示解析路径，完整值见 title） */
+.re-var {
+  display: inline;
+  background: rgba(124, 58, 237, .13);
+  color: #7c3aed;
+  border-radius: 4px;
+  padding: 1px 4px;
+  margin: 0 1px;
+  font-weight: 600;
+}
+/* 变量下拉 */
+.re-dropdown {
+  position: absolute;
+  z-index: 30;
+  min-width: 280px;
+  max-width: 420px;
+  max-height: 240px;
+  overflow: auto;
+  background: var(--re-panel);
+  border: 1px solid var(--re-border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px var(--c-shadow, rgba(15, 23, 42, .15));
+  padding: 4px;
+}
+.re-dropdown[hidden] { display: none; }
+.re-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--re-text);
+}
+.re-item.is-active { background: var(--c-accent-soft, rgba(47, 111, 237, .12)); }
+.re-item-name { font-weight: 600; }
+.re-item small { display: block; color: var(--re-muted); font-size: 12px; }
+.re-dd-tip { padding: 8px; font-size: 12px; color: var(--re-muted); }
+/* 已引用字段面板 */
+.re-refs {
+  padding: 6px 12px;
+  border-top: 1px solid var(--re-border);
+  font-size: 12px;
+  color: var(--re-muted);
+  background: rgba(15, 23, 42, .02);
+  max-height: 76px;
+  overflow: auto;
+}
+.re-ref {
+  display: inline-block;
+  margin: 2px 6px 2px 0;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: rgba(124, 58, 237, .1);
+  color: #7c3aed;
+  font-weight: 600;
+}
