@@ -9,9 +9,10 @@
   --re-text:          #1f2937;
   --re-muted:         #6b7280;
   --re-muted-soft:    #9ca3af;
-  --re-accent:        #2f6fed;
-  --re-accent-soft:   rgba(47, 111, 237, .10);
-  --re-accent-ring:   rgba(47, 111, 237, .18);
+  /* 强调色：跟随 amis 弹层主题（--Colors-brand-N 随 cxd/cxd-dark 主题切换），独立页面 fallback 蓝色 */
+  --re-accent:        var(--Colors-brand-5, #2f6fed);
+  --re-accent-soft:   var(--Colors-brand-1, rgba(47, 111, 237, .10));
+  --re-accent-ring:   var(--Colors-brand-2, rgba(47, 111, 237, .18));
   --re-danger:        #dc2626;
   --re-font: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
   --re-radius:        8px;
@@ -63,8 +64,38 @@
   font-family: var(--re-font);
 }
 
+/* ---------- 行号区 + 编辑区（左右并排，行号不叠加在内容上） ---------- */
+.re-main {
+  display: flex;
+  align-items: stretch;
+  background: var(--re-panel);
+}
+.re-gutter {
+  flex: 0 0 46px;
+  width: 46px;
+  box-sizing: border-box;
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(90deg, #fafbfd 0%, #f5f7fa 100%);
+  border-right: 1px solid var(--re-border-soft);
+  user-select: none;
+}
+.re-gutter-inner { position: absolute; left: 0; right: 0; top: 0; width: 100%; }
+.re-gutter-num {
+  position: absolute;
+  right: 9px;
+  font: 600 12px / 1.2 var(--re-font);
+  color: var(--re-accent);     /* 跟随主题：light=#2f6fed / dark=#7aa2ff */
+  opacity: 0.7;
+  text-align: right;
+  white-space: nowrap;
+  transition: color .15s;
+}
+
 /* ---------- 编辑区 ---------- */
 .re-editor {
+  flex: 1 1 auto;
+  min-width: 0;
   min-height: 400px;
   max-height: 480px;
   overflow: auto;
@@ -313,15 +344,13 @@
     --re-text:          #e5e7eb;
     --re-muted:         #9ca3af;
     --re-muted-soft:    #6b7280;
-    --re-accent:        #7aa2ff;
-    --re-accent-soft:   rgba(122, 162, 255, .15);
-    --re-accent-ring:   rgba(122, 162, 255, .25);
     --re-shadow-1:      0 1px 2px rgba(0, 0, 0, .3);
     --re-shadow-3:      0 12px 40px rgba(0, 0, 0, .55), 0 2px 6px rgba(0, 0, 0, .3);
   }
   .re-toolbar { background: linear-gradient(180deg, #1f1f2e 0%, #1a1a26 100%); }
   .re-refs    { background: linear-gradient(180deg, #1f1f2e 0%, #1a1a26 100%); }
   .re-dd-head { background: linear-gradient(180deg, #1f1f2e 0%, #1a1a26 100%); }
+  .re-gutter  { background: linear-gradient(90deg, #20202f 0%, #191925 100%); }
   .re-field {
     color: #c4b5fd;
     background: linear-gradient(180deg, rgba(124,58,237,.28) 0%, rgba(124,58,237,.20) 100%);

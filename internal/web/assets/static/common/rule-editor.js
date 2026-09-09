@@ -185,6 +185,17 @@
     ed.setAttribute('data-placeholder', '在此输入 Starlark 规则…');
     var refs = document.createElement('div');
     refs.className = 're-refs';
+    /* 行号列：与编辑区左右并排（不叠加在内容上，contenteditable 单层渲染不产生漂移） */
+    var gutterEl = document.createElement('div');
+    gutterEl.className = 're-gutter';
+    gutterEl.setAttribute('aria-hidden', 'true');
+    var gutterInner = document.createElement('div');
+    gutterInner.className = 're-gutter-inner';
+    gutterEl.appendChild(gutterInner);
+    var mainEl = document.createElement('div');
+    mainEl.className = 're-main';
+    mainEl.appendChild(gutterEl);
+    mainEl.appendChild(ed);
 
     // 下拉面板：搜索框 + 结果列表（挂到 body，避免被 .re-wrap 的 overflow:hidden 裁剪）
     var dd = document.createElement('div');
@@ -197,14 +208,14 @@
 
     ta.parentNode.insertBefore(wrap, ta);
     wrap.appendChild(toolbar);
-    wrap.appendChild(ed);
+    wrap.appendChild(mainEl);
     wrap.appendChild(refs);
     document.body.appendChild(dd);
     ta.style.display = 'none';
     ta.setAttribute('data-re-mounted', '1');
 
     var st = {
-      ta: ta, ed: ed, dd: dd, refs: refs,
+      ta: ta, ed: ed, gutterEl: gutterEl, gutterInner: gutterInner, dd: dd, refs: refs,
       items: [], allItems: [], active: 0,
       insertOffset: -1,
       composing: false, debTimer: null, syncTimer: null, last: null
@@ -220,6 +231,7 @@
       ta.dispatchEvent(new Event('input', { bubbles: true }));
       st.last = v;
       updateRefs(v);
+      scheduleGutter();
     }
     function updateRefs(v) {
       var out = '', m, n = 0;
@@ -229,6 +241,50 @@
         out += '<span class="re-ref" title="字段 #' + esc(m[1]) + '">#' + esc(m[1]) + ' ' + esc(m[2]) + '</span>';
       }
       refs.innerHTML = n ? '已引用 ' + n + ' 个字段：' + out : '尚未引用字段（按 Ctrl 选择）';
+    }
+
+    /* -------- 行号（contenteditable 版：按真实视觉行定位，不叠加、不漂移） -------- */
+    // 内容 offset 处的可视 y（相对编辑区顶部，含滚动）
+    function contentYAt(ed2, offset) {
+      var edRect = ed2.getBoundingClientRect();
+      var padTop = parseFloat(getComputedStyle(ed2).paddingTop) || 0;
+      var rng = rangeForOffsets(ed2, offset, offset);
+      var sp = document.createElement('span');
+      sp.textContent = '\u200B';
+      try { rng.insertNode(sp); } catch (e) { return null; }
+      var r = sp.getBoundingClientRect();
+      sp.parentNode.removeChild(sp);
+      return r.top - edRect.top - padTop + ed2.scrollTop;
+    }
+    function updateGutter() {
+      if (!gutterInner || !ed) return;
+      var txt = ed.textContent || '';
+      var starts = [0];
+      for (var i = 0; i < txt.length; i++) {
+        if (txt.charAt(i) === '\n') starts.push(i + 1);
+      }
+      var padTop = parseFloat(getComputedStyle(ed).paddingTop) || 0;
+      var html = '', maxY = 0;
+      for (var k = 0; k < starts.length; k++) {
+        var y = contentYAt(ed, starts[k]);
+        if (y === null) continue;
+        if (y > maxY) maxY = y;
+        html += '<span class="re-gutter-num" style="top:' + (padTop + y).toFixed(1) + 'px">' + (k + 1) + '</span>';
+      }
+      gutterInner.innerHTML = html;
+      gutterInner.style.height = (maxY + 60) + 'px';
+      gutterSyncScroll();
+    }
+    function gutterSyncScroll() {
+      if (gutterInner) gutterInner.style.transform = 'translateY(' + (-ed.scrollTop) + 'px)';
+    }
+    var gutterRaf = 0;
+    function scheduleGutter() {
+      if (gutterRaf) return;
+      gutterRaf = requestAnimationFrame(function () {
+        gutterRaf = 0;
+        updateGutter();
+      });
     }
 
     /* -------- 面板渲染 -------- */
@@ -455,6 +511,7 @@
 
     ed.addEventListener('input', onInput);
     ed.addEventListener('keydown', onKeyDown);
+    ed.addEventListener('scroll', gutterSyncScroll);
     ed.addEventListener('compositionstart', function () { st.composing = true; });
     ed.addEventListener('compositionend', function () { st.composing = false; commit(); });
     dd.addEventListener('mousedown', function (e) {
@@ -469,6 +526,45 @@
     document.addEventListener('mousedown', st.onDocDown, true);
 
     updateRefs(ta.value || '');
+    scheduleGutter();
+
+    /* -------- 跟随 amis 弹层主题色（amis 6 用 JS-in-JS 注入，不暴露 CSS 变量） --------
+       读弹层里 .cxd-Button--primary 按钮的背景作为强调色，动态设到 wrap 的 --re-accent。
+       找不到时沿用 :root 的 fallback 颜色。 */
+    function rgbWithAlpha(rgb, a) {
+      var m = /rgba?\((\d+)\s*,\s*(\d+)\s*,\s*(\d+)/.exec(rgb);
+      return m ? ('rgba(' + m[1] + ',' + m[2] + ',' + m[3] + ',' + a + ')') : rgb;
+    }
+    function pickAmisAccent() {
+      var btn = document.querySelector('.cxd-Button--primary, .cxd-Button.cxd-Button--primary');
+      if (btn) {
+        var bg = getComputedStyle(btn).backgroundColor;
+        if (bg && bg.indexOf('rgba(0, 0, 0, 0)') < 0 && bg !== 'transparent') return bg;
+      }
+      return null;
+    }
+    function applyAmisAccent() {
+      var c = pickAmisAccent();
+      if (!c) return;
+      wrap.style.setProperty('--re-accent', c);
+      wrap.style.setProperty('--re-accent-soft', rgbWithAlpha(c, 0.12));
+      wrap.style.setProperty('--re-accent-ring', rgbWithAlpha(c, 0.22));
+    }
+    var amisAccentTimer = 0;
+    function scheduleAmisAccent() {
+      clearTimeout(amisAccentTimer);
+      amisAccentTimer = setTimeout(applyAmisAccent, 120);
+    }
+    applyAmisAccent();
+    setTimeout(applyAmisAccent, 500);
+    setTimeout(applyAmisAccent, 1500);
+    if (window.MutationObserver) {
+      try {
+        var moA = new MutationObserver(scheduleAmisAccent);
+        moA.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+        moA.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class','style'] });
+      } catch (e) {}
+    }
 
     var handle = { st: st, ta: ta };
     st.syncTimer = setInterval(function () {
@@ -478,6 +574,7 @@
         ed.appendChild(deserialize(ta.value || ''));
         st.last = ta.value;
         updateRefs(ta.value || '');
+        scheduleGutter();
       }
     }, 300);
 
