@@ -61,14 +61,16 @@
     if (last < v.length) frag.appendChild(document.createTextNode(v.slice(last)));
     return frag;
   }
-  function makeField(id, path) {
+  function makeField(id, path, name) {
     var span = document.createElement('span');
     span.className = 're-field';
     span.setAttribute('contenteditable', 'false');
     span.setAttribute('data-id', id);
     span.setAttribute('data-path', path);
-    span.setAttribute('title', '字段 #' + id + ' · ' + path);
-    span.textContent = path;
+    if (name && name !== path) span.setAttribute('data-name', name);
+    var label = name || path;   // 优先显示字段名称；无名称（反序列化）时回退为路径
+    span.setAttribute('title', '字段 #' + id + ' · ' + label);
+    span.textContent = label;
     return span;
   }
 
@@ -138,7 +140,7 @@
 
   /* ---------------- 字段加载（有且仅有 Ctrl 键触发时调用） ---------------- */
   function fetchFieldsPage(page, cb) {
-    var qs = 'page=' + page + '&page_size=100';
+    var qs = 'page=' + page + '&page_size=1000';
     var pid = projectId();
     if (pid) qs += '&project_id=' + encodeURIComponent(pid);
     var headers = { 'Accept': 'application/json' };
@@ -175,7 +177,7 @@
     wrap.className = 're-wrap';
     var toolbar = document.createElement('div');
     toolbar.className = 're-toolbar';
-    toolbar.innerHTML = '按 <b>Ctrl</b> 键获取字段列表，面板内可搜索过滤；Tab 缩进';
+    toolbar.innerHTML = '双击 <b>Ctrl</b> 获取字段列表，面板内可搜索过滤；Tab 缩进';
     var ed = document.createElement('div');
     ed.className = 're-editor';
     ed.setAttribute('contenteditable', 'plaintext-only');
@@ -210,6 +212,7 @@
 
     ed.appendChild(deserialize(ta.value || ''));
 
+    var lastCtrlDown = 0;   // 双击 Ctrl 判定（记录上次按下时刻 ms）
     function commit() {
       var v = serialize(ed);
       var setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
@@ -347,7 +350,7 @@
           insertAt++;
         }
         var r = clampToValid(rangeForOffsets(ed, insertAt, insertAt));
-        var span = makeField(f.id, f.parse_path || f.name);
+        var span = makeField(f.id, f.parse_path || f.name, f.name);
         r.insertNode(span);
         var sel = window.getSelection();
         var caretRange = document.createRange();
@@ -388,16 +391,20 @@
       commit();
     }
     function onKeyDown(e) {
-      if (e.key === 'Control' && !e.repeat) {
-        e.preventDefault();
-        st.insertOffset = caretOffsetOf(ed);   // 记录按下 Ctrl 时的光标位置
-        openDD();
-        return;
-      }
-      if ((e.ctrlKey || e.metaKey) && (e.key === ' ' || e.code === 'Space' || e.key === 'i' || e.key === 'I')) {
-        e.preventDefault();
-        st.insertOffset = caretOffsetOf(ed);
-        openDD();
+      /* 只有「双击 Ctrl」才唤起字段列表。
+         单击 Ctrl（配合 Ctrl+A/C/V 等常用组合）一律放行、不拦截、不触发。 */
+      if (e.key === 'Control') {
+        if (!e.repeat) {
+          var now = Date.now();
+          if (lastCtrlDown && now - lastCtrlDown < 300) {
+            lastCtrlDown = 0;                        // 第二次（双击）→ 唤起
+            e.preventDefault();
+            st.insertOffset = caretOffsetOf(ed);
+            openDD();
+          } else {
+            lastCtrlDown = now;                      // 第一次（单击）→ 仅记录，放行默认
+          }
+        }
         return;
       }
       if (!dd.hidden) {

@@ -65,7 +65,7 @@
 
 /* ---------- 编辑区 ---------- */
 .re-editor {
-  min-height: 200px;
+  min-height: 400px;
   max-height: 480px;
   overflow: auto;
   padding: 12px 14px;

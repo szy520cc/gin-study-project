@@ -97,7 +97,7 @@ type DeleteFieldRequest struct {
 // FieldListRequest 字段列表请求
 type FieldListRequest struct {
 	Page      int    `form:"page" binding:"omitempty,min=1,max=10000"`
-	PageSize  int    `form:"page_size" binding:"omitempty,min=1,max=100"`
+	PageSize  int    `form:"page_size" binding:"omitempty,min=1,max=1000"`
 	ProjectID string `form:"project_id" binding:"omitempty,max=100"`
 	Name      string `form:"name" binding:"omitempty,max=200"`
 	Type      string `form:"type" binding:"omitempty,oneof=int float string bool array object"`
