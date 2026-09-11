@@ -118,12 +118,12 @@
                   },
                   { "type": "hidden", "name": "result_type" },
                   {
-                    "type": "textarea",
+                    "type": "app-json-editor",
                     "name": "data",
                     "label": "目标参数（JSON）",
                     "required": true,
-                    "rows": 4,
-                    "placeholder": "{\"material\":{\"vertical_type\":1}}"
+                    "validations": { "isJson": true },
+                    "description": "编辑区为 div；自动缩进与括号补全；粘贴自动美化；Tab 2 空格；工具栏「格式化 / 压缩」；非法 JSON 实时标红"
                   }
                 ]
               }

@@ -1,0 +1,179 @@
+/* =========================================================
+   JSON 编辑器（amis 自定义表单项 type="json-editor"）
+   编辑区为 contenteditable 的 div；样式与 rule-editor.css 风格统一。
+   ========================================================= */
+:root {
+  --je-border:        #d8dee9;
+  --je-border-soft:   #e8ecf1;
+  --je-panel:         #ffffff;
+  --je-text:          #1f2937;
+  --je-muted:         #6b7280;
+  --je-muted-soft:    #9ca3af;
+  --je-accent:        var(--Colors-brand-5, #2f6fed);
+  --je-accent-soft:   var(--Colors-brand-1, rgba(47, 111, 237, .10));
+  --je-accent-ring:   var(--Colors-brand-2, rgba(47, 111, 237, .18));
+  --je-valid:         #16a34a;
+  --je-valid-soft:    rgba(22, 163, 74, .10);
+  --je-danger:        #dc2626;
+  --je-danger-soft:   rgba(220, 38, 38, .10);
+  --je-font: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --je-radius:        8px;
+  --je-radius-sm:     6px;
+  --je-shadow-1:      0 1px 2px rgba(15, 23, 42, .04);
+}
+
+/* ---------- 编辑器容器 ---------- */
+.je-wrap {
+  position: relative;
+  border: 1.5px solid var(--je-border);
+  border-radius: var(--je-radius);
+  background: var(--je-panel);
+  color: var(--je-text);
+  overflow: hidden;
+  box-shadow: var(--je-shadow-1);
+  transition: border-color .18s, box-shadow .18s;
+}
+.je-wrap:focus-within {
+  border-color: var(--je-accent);
+  box-shadow: 0 0 0 3px var(--je-accent-ring), var(--je-shadow-1);
+}
+.je-wrap.is-valid { border-color: var(--je-valid); }
+.je-wrap.is-valid:focus-within {
+  border-color: var(--je-valid);
+  box-shadow: 0 0 0 3px var(--je-valid-soft), var(--je-shadow-1);
+}
+.je-wrap.is-invalid { border-color: var(--je-danger); }
+.je-wrap.is-invalid:focus-within {
+  border-color: var(--je-danger);
+  box-shadow: 0 0 0 3px var(--je-danger-soft), var(--je-shadow-1);
+}
+.je-wrap.is-disabled { opacity: .65; }
+
+/* ---------- 工具栏 ---------- */
+.je-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  font-size: 12.5px;
+  color: var(--je-muted);
+  background: linear-gradient(180deg, #fafbfd 0%, #f5f7fa 100%);
+  border-bottom: 1px solid var(--je-border-soft);
+  user-select: none;
+  flex-wrap: wrap;
+}
+.je-hint {
+  flex: 1 1 auto;
+  font-size: 11.5px;
+  color: var(--je-muted-soft);
+}
+.je-hint::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--je-muted-soft);
+  vertical-align: middle;
+}
+.je-wrap.is-valid .je-hint::before { background: var(--je-valid); }
+.je-wrap.is-invalid .je-hint::before { background: var(--je-danger); }
+
+/* 工具栏按钮 */
+.je-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  border: 1px solid var(--je-border);
+  border-radius: var(--je-radius-sm);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--je-text);
+  background: var(--je-panel);
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+  transition: background .12s, border-color .12s, color .12s, box-shadow .12s;
+}
+.je-btn:hover:not(:disabled) {
+  background: var(--je-accent-soft);
+  border-color: var(--je-accent);
+  color: var(--je-accent);
+}
+.je-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--je-accent-ring);
+}
+.je-btn:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+/* 校验状态文案 */
+.je-error {
+  flex: 0 0 auto;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--je-valid);
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.je-wrap.is-invalid .je-error { color: var(--je-danger); }
+
+/* ---------- 编辑区（contenteditable div） ---------- */
+.je-proxy {
+  min-height: 130px;
+  max-height: 300px;
+  overflow: auto;
+  padding: 12px 14px;
+  font: 13px / 1.65 var(--je-font);
+  color: var(--je-text);
+  white-space: pre-wrap;
+  word-break: break-word;
+  outline: none;
+  background: var(--je-panel);
+  cursor: text;
+  tab-size: 2;
+}
+.je-proxy:empty::before {
+  content: '在此输入 JSON…';
+  color: var(--je-muted-soft);
+  pointer-events: none;
+  font-style: italic;
+}
+.je-wrap.is-disabled .je-proxy { cursor: default; }
+
+/* 自定义滚动条 */
+.je-proxy::-webkit-scrollbar { width: 8px; height: 8px; }
+.je-proxy::-webkit-scrollbar-track { background: transparent; }
+.je-proxy::-webkit-scrollbar-thumb {
+  background: rgba(15, 23, 42, .18);
+  border-radius: 4px;
+  border: 2px solid var(--je-panel);
+  background-clip: padding-box;
+}
+.je-proxy::-webkit-scrollbar-thumb:hover {
+  background: rgba(15, 23, 42, .32);
+  background-clip: padding-box;
+  border: 2px solid var(--je-panel);
+}
+
+/* ---------- 深色模式 ---------- */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --je-border:        #34344a;
+    --je-border-soft:   #2a2a3a;
+    --je-panel:         #1b1b27;
+    --je-text:          #e5e7eb;
+    --je-muted:         #9ca3af;
+    --je-muted-soft:    #6b7280;
+    --je-shadow-1:      0 1px 2px rgba(0, 0, 0, .3);
+  }
+  .je-toolbar { background: linear-gradient(180deg, #1f1f2e 0%, #1a1a26 100%); }
+  .je-proxy::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .15); background-clip: padding-box; border: 2px solid var(--je-panel); }
+  .je-proxy::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, .25); background-clip: padding-box; border: 2px solid var(--je-panel); }
+}

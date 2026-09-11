@@ -10,6 +10,7 @@
 <link rel="stylesheet" href="/admin/static/amis/sdk.css">
 <link rel="stylesheet" href="/admin/static/common/app.css?v=20260906p">
 <link rel="stylesheet" href="/admin/static/common/rule-editor.css?v=20260909ah">
+<link rel="stylesheet" href="/admin/static/common/json-editor.css?v=20260912a">
 </head>
 <body class="app-shell" id="appShell">
 
@@ -83,6 +84,8 @@
 <!-- 本地脚本：先 SDK、再公共逻辑 -->
 <script src="/admin/static/bootstrap/bootstrap.bundle.min.js"></script>
 <script src="/admin/static/amis/sdk.min.js"></script>
+<!-- 自定义 JSON 表单项（依赖 sdk.min.js 暴露的 amisRequire，故紧随其后加载） -->
+<script src="/admin/static/common/json-editor.js?v=20260912e"></script>
 <!-- 菜单配置（独立文件，先于 app.js 加载，app.js 读取 window.APP_MENU） -->
 <script src="/admin/static/common/app_menu.js?v=20260906k"></script>
 <script src="/admin/static/common/app.js?v=20260909a"></script>
