@@ -49,6 +49,26 @@ func SaveRule(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+// UpdateRuleConfig 整配置一次保存（基本信息 + 规则内容，含 fork 语义）
+// @Router /api/v1/configs/rule/update [post]
+func UpdateRuleConfig(c *gin.Context) {
+	if _, ok := middleware.RequireUserID(c); !ok {
+		return
+	}
+
+	var req model.UpdateRuleConfigRequest
+	if !bindJSON(c, &req) {
+		return
+	}
+
+	resp, err := service.UpdateRuleConfig(c.Request.Context(), middleware.Username(c), &req)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.Success(c, resp)
+}
+
 // GetRule 获取规则详情（含占位符原文供编辑器回显）
 // @Router /api/v1/configs/rule/detail [get]
 func GetRule(c *gin.Context) {

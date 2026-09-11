@@ -56,11 +56,6 @@ window.APP_MENU = [
         "title": "配置管理",
         "key": "config.json",
         "icon": "fa-file-code"
-      },
-      {
-        "title": "规则管理",
-        "key": "rule.json",
-        "icon": "fa-code-branch"
       }
     ]
   }

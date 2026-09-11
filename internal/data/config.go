@@ -41,6 +41,20 @@ func UpdateConfig(ctx context.Context, id uint64, c *model.Config) (int64, error
 	return res.RowsAffected, res.Error
 }
 
+// UpdateConfigBasic 仅更新基本可编辑字段（name/remark），不碰 status/is_latest/type/cut。
+// 用于「整配置一次保存」：fork 新版本后把本次提交的名称/备注写到新版本行，
+// 或草稿原地更新名称/备注 —— 都不该动状态与切流字段。
+func UpdateConfigBasic(ctx context.Context, id uint64, name, remark, username string, now int64) error {
+	return connDb(ctx).Model(&model.Config{}).
+		Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"name":         name,
+			"remark":       remark,
+			"updated_user": username,
+			"updated_at":   now,
+		}).Error
+}
+
 // DeleteConfig 物理删除配置
 func DeleteConfig(ctx context.Context, id uint64) error {
 	return connDb(ctx).Delete(&model.Config{}, id).Error

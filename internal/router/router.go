@@ -213,6 +213,7 @@ func registerConfig(g *gin.RouterGroup, auth gin.HandlerFunc) {
 		configs.GET("/detail", controller.GetConfig)
 		// 规则相关（挂在 config 下）
 		configs.POST("/rule/add", controller.CreateRuleConfig)
+		configs.POST("/rule/update", controller.UpdateRuleConfig)
 		configs.POST("/rule/save", controller.SaveRule)
 		configs.GET("/rule/detail", controller.GetRule)
 		configs.POST("/testrun", controller.TestRun)

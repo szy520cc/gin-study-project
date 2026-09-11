@@ -75,9 +75,17 @@ type CreateRuleConfigRequest struct {
 }
 
 // RuleResponse 规则响应（含编译后脚本 + 原文 + 引用指标详情）。
+// 除规则内容外，冗余携带所在 config 的基本信息（name/logo/type/status/remark 等），
+// 供「配置管理」页编辑弹层一次 initApi 回显「基本信息 + 规则内容」，无需二次请求。
 type RuleResponse struct {
 	ConfigID        uint64           `json:"config_id"`
 	ProjectID       string           `json:"project_id"`       // 规则所属项目（编辑器按项目过滤字段用）
+	ConfigPackID    uint64           `json:"config_pack_id"`   // 所属配置包
+	Name            string           `json:"name"`             // 配置名称
+	Logo            string           `json:"logo"`             // 配置标识
+	Type            string           `json:"type"`             // 配置类型（rule）
+	StatusText      string           `json:"status_text"`      // 状态文案
+	Remark          string           `json:"remark"`           // 备注
 	Rule            string           `json:"rule"`             // 编译后 Starlark 成品
 	RuleSource      string           `json:"rule_source"`      // 占位符原文（供编辑器回显）
 	ConditionConfig string           `json:"condition_config"` // 占位符原文 JSON（含 bind_var）
@@ -86,6 +94,17 @@ type RuleResponse struct {
 	ResultType      string           `json:"result_type"`
 	Engine          string           `json:"engine"`
 	Version         string           `json:"version"` // 所在 config 版本号
+}
+
+// UpdateRuleConfigRequest 整配置一次保存请求（「配置管理」页编辑弹层）。
+// 在一个请求里同时保存配置基本字段（name/remark）与规则内容（rule/result_type）；
+// 若配置当前生效，保存时自动 fork 新版本（不可变发布链），草稿则原地更新。
+type UpdateRuleConfigRequest struct {
+	ConfigID   uint64 `json:"config_id" binding:"required"`
+	Name       string `json:"name" binding:"required,max=200"`
+	Remark     string `json:"remark" binding:"max=2000"`
+	Rule       string `json:"rule" binding:"required"` // 含占位符的规则原文
+	ResultType string `json:"result_type" binding:"required,oneof=pass_reject_review hit_result json"`
 }
 
 // TestRunRequest 现场验证请求（不落库、不碰缓存）。

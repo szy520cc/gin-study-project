@@ -6,30 +6,30 @@
     "name": "configCrud",
     "api": {
       "method": "get",
-      "url": "/api/v1/configs/list"
+      "url": "/api/v1/configs/list",
+      "data": { "type": "rule" }
     },
     "perPage": 10,
     "perPageAvailable": [10, 20, 50, 100],
-    "pageField": "page",
-    "perPageField": "page_size",
     "columns": [
-      { "name": "id", "label": "ID", "width": 70 },
-      { "name": "config_pack_id", "label": "配置包", "width": 90 },
+      { "name": "id", "label": "ID", "width": 60 },
       { "name": "name", "label": "配置名称" },
-      { "name": "logo", "label": "配置标识", "width": 130 },
-      { "name": "type", "label": "类型", "width": 90 },
-      { "name": "version", "label": "版本", "width": 90 },
+      { "name": "logo", "label": "配置标识", "width": 150 },
+      { "name": "version", "label": "版本", "width": 150 },
       { "name": "status_text", "label": "状态", "width": 80 },
       { "name": "is_latest_text", "label": "最新", "width": 70 },
-      { "name": "updated_at_text", "label": "更新时间", "width": 170 },
+      { "name": "cut_num", "label": "切流", "width": 80 },
+      { "name": "updated_at_text", "label": "更新时间", "width": 160 },
       {
         "type": "operation",
         "label": "操作",
-        "width": 150,
+        "width": 260,
         "buttons": [
           {
             "type": "button",
             "label": "编辑",
+            "level": "link",
+            "visibleOn": "this.status != 2",
             "actionType": "dialog",
             "dialog": {
               "title": "编辑配置",
@@ -39,58 +39,146 @@
                 "reload": "configCrud",
                 "initApi": {
                   "method": "get",
-                  "url": "/api/v1/configs/detail?id=${id}"
+                  "url": "/api/v1/configs/rule/detail?id=${id}",
+                  "adaptor": "var d=payload.data||{};window.RuleEditorContext=window.RuleEditorContext||{};window.RuleEditorContext.projectId=d.project_id||'';d.rule=d.rule_source||'';return {data:d};"
                 },
                 "api": {
                   "method": "post",
-                  "url": "/api/v1/configs/update"
+                  "url": "/api/v1/configs/rule/update",
+                  "data": { "config_id": "${id}" }
                 },
                 "body": [
-                  { "type": "input-text", "name": "project_id", "label": "所属项目", "disabled": true },
-                  { "type": "input-number", "name": "config_pack_id", "label": "配置包ID", "disabled": true },
-                  { "type": "input-text", "name": "logo", "label": "配置标识", "disabled": true, "description": "标识与版本创建后不可修改" },
-                  { "type": "input-text", "name": "version", "label": "版本", "disabled": true },
+                  { "type": "alert", "body": "一个弹层一次保存：基本信息与规则内容一起提交。若当前版本已生效，保存将自动生成新版本草稿，线上版本保持不变。", "level": "info" },
+                  {
+                    "type": "group",
+                    "body": [
+                      { "type": "input-text", "name": "project_id", "label": "所属项目", "disabled": true },
+                      { "type": "input-text", "name": "config_pack_id", "label": "配置包ID", "disabled": true }
+                    ]
+                  },
+                  {
+                    "type": "group",
+                    "body": [
+                      { "type": "input-text", "name": "logo", "label": "配置标识", "disabled": true },
+                      { "type": "input-text", "name": "version", "label": "版本", "disabled": true },
+                      { "type": "input-text", "name": "status_text", "label": "状态", "disabled": true }
+                    ]
+                  },
                   { "type": "input-text", "name": "name", "label": "配置名称", "required": true, "maxLength": 200 },
-                  { "type": "input-text", "name": "type", "label": "配置类型", "required": true, "maxLength": 50 },
+                  { "type": "textarea", "name": "remark", "label": "备注", "maxLength": 2000, "rows": 2 },
                   {
-                    "type": "select",
-                    "name": "status",
-                    "label": "状态",
+                    "type": "textarea",
+                    "name": "rule",
+                    "label": "规则（Starlark）",
                     "required": true,
-                    "options": "$frag:_frags/status-options.json"
+                    "rows": 15,
+                    "className": "rule-editor",
+                    "description": "键入 control 快捷插入字段；Tab 缩进。字段以 ##字段ID**解析路径## 形式保存，示例：if ##209**material.vertical_type## in (0,1,5): return 1。脚本末尾必须给 result 赋值。"
                   },
                   {
                     "type": "select",
-                    "name": "is_latest",
-                    "label": "是否最新",
+                    "name": "result_type",
+                    "label": "结果类型",
                     "required": true,
-                    "options": "$frag:_frags/is-latest-options.json"
-                  },
-                  { "type": "input-number", "name": "cut_num", "label": "切流量级", "step": 0.1, "min": 0 },
-                  { "type": "input-number", "name": "cut_at", "label": "切流时间(Unix秒)", "min": 0 },
-                  { "type": "input-text", "name": "cut_version", "label": "切流版本", "maxLength": 50 },
-                  { "type": "textarea", "name": "remark", "label": "备注", "maxLength": 2000 }
+                    "options": "$frag:_frags/result-type-options.json"
+                  }
                 ]
               }
             }
           },
           {
             "type": "button",
-            "label": "删除",
-            "level": "danger",
+            "label": "验证",
+            "level": "link",
+            "visibleOn": "this.status != 2",
             "actionType": "dialog",
             "dialog": {
-              "title": "删除确认",
+              "title": "规则验证（现场执行，不保存）",
+              "size": "lg",
+              "body": {
+                "type": "form",
+                "initApi": {
+                  "method": "get",
+                  "url": "/api/v1/configs/rule/detail?id=${id}",
+                  "adaptor": "window.RuleEditorContext = window.RuleEditorContext || {}; window.RuleEditorContext.projectId = payload.data.project_id || ''; return { data: { rule: payload.data.rule_source || '', result_type: payload.data.result_type || 'pass_reject_review', data: '{}' } };"
+                },
+                "api": {
+                  "method": "post",
+                  "url": "/api/v1/configs/testrun",
+                  "adaptor": "if (payload.status !== 0) { return { status: payload.status, msg: payload.msg || '执行失败', data: payload.data }; } return { status: 0, msg: '执行结果: ' + JSON.stringify(payload.data.value), data: payload.data };"
+                },
+                "body": [
+                  {
+                    "type": "textarea",
+                    "name": "rule",
+                    "label": "规则（可临时修改后直接验证）",
+                    "required": true,
+                    "rows": 10,
+                    "className": "rule-editor"
+                  },
+                  { "type": "hidden", "name": "result_type" },
+                  {
+                    "type": "textarea",
+                    "name": "data",
+                    "label": "目标参数（JSON）",
+                    "required": true,
+                    "rows": 4,
+                    "placeholder": "{\"material\":{\"vertical_type\":1}}"
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "type": "button",
+            "label": "切流",
+            "level": "link",
+            "visibleOn": "this.status == 0",
+            "actionType": "dialog",
+            "dialog": {
+              "title": "灰度切流",
               "body": {
                 "type": "form",
                 "reload": "configCrud",
                 "api": {
                   "method": "post",
-                  "url": "/api/v1/configs/delete",
+                  "url": "/api/v1/configs/cutprogress",
+                  "data": { "config_id": "${id}", "cut_num": "${cut_num}" }
+                },
+                "body": [
+                  { "type": "alert", "body": "切流将把指定比例的流量切到当前待审核版本（灰度状态记录在线上版本）。需先存在已生效版本。", "level": "warning" },
+                  {
+                    "type": "input-number",
+                    "name": "cut_num",
+                    "label": "切流比例",
+                    "required": true,
+                    "min": 0,
+                    "max": 1,
+                    "step": 0.1,
+                    "description": "0-1 之间（不含 0 和 1），如 0.1 表示 10% 流量走新版本"
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "type": "button",
+            "label": "发布",
+            "level": "primary",
+            "visibleOn": "this.status == 0",
+            "actionType": "dialog",
+            "dialog": {
+              "title": "发布确认",
+              "body": {
+                "type": "form",
+                "reload": "configCrud",
+                "api": {
+                  "method": "post",
+                  "url": "/api/v1/configs/publish",
                   "data": { "id": "${id}" }
                 },
                 "body": [
-                  { "type": "alert", "body": "确认删除该配置？删除后不可恢复。", "level": "warning" }
+                  { "type": "alert", "body": "确认全量发布该配置？发布后旧版本下线、灰度标记清零，发布即生效。", "level": "warning" }
                 ]
               }
             }
@@ -102,7 +190,6 @@
       "title": "筛选",
       "body": [
         { "type": "input-text", "name": "name", "label": "配置名称（模糊）" },
-        { "type": "input-text", "name": "type", "label": "配置类型" },
         {
           "type": "select",
           "name": "status",
@@ -128,9 +215,10 @@
             "reload": "configCrud",
             "api": {
               "method": "post",
-              "url": "/api/v1/configs/add"
+              "url": "/api/v1/configs/rule/add"
             },
             "body": [
+              { "type": "alert", "body": "当前仅支持规则类配置（type=rule）：基本信息与规则内容在一次提交中完成，版本号由系统自动生成。", "level": "info" },
               {
                 "type": "select",
                 "name": "project_id",
@@ -140,6 +228,16 @@
                   "method": "get",
                   "url": "/api/v1/projects/list?page=1&page_size=100",
                   "adaptor": "return {options:(payload.data.items||[]).map(function(it){return {label:it.name, value:String(it.id)}})};"
+                },
+                "onEvent": {
+                  "change": {
+                    "actions": [
+                      {
+                        "actionType": "custom",
+                        "script": "window.RuleEditorContext=window.RuleEditorContext||{};window.RuleEditorContext.projectId=event.data.value||'';"
+                      }
+                    ]
+                  }
                 }
               },
               {
@@ -154,35 +252,29 @@
                 }
               },
               { "type": "input-text", "name": "name", "label": "配置名称", "required": true, "maxLength": 200 },
-              { "type": "input-text", "name": "logo", "label": "配置标识", "required": true, "maxLength": 200, "placeholder": "与版本一起唯一" },
-              { "type": "input-text", "name": "type", "label": "配置类型", "required": true, "maxLength": 50, "placeholder": "如 json / text / abtest" },
-              { "type": "input-text", "name": "version", "label": "版本", "required": true, "maxLength": 50, "placeholder": "如 v1.0.0" },
+              { "type": "input-text", "name": "logo", "label": "配置标识", "required": true, "maxLength": 200, "placeholder": "全局唯一；同一标识的后续版本请通过「编辑」自动生成" },
               {
                 "type": "select",
-                "name": "status",
-                "label": "状态",
-                "placeholder": "默认待审核",
-                "options": "$frag:_frags/status-options.json"
+                "name": "result_type",
+                "label": "结果类型",
+                "required": true,
+                "options": "$frag:_frags/result-type-options.json"
               },
               {
-                "type": "select",
-                "name": "is_latest",
-                "label": "是否最新",
-                "placeholder": "默认是",
-                "options": "$frag:_frags/is-latest-options.json"
+                "type": "textarea",
+                "name": "rule",
+                "label": "规则（Starlark）",
+                "required": true,
+                "rows": 15,
+                "className": "rule-editor",
+                "description": "键入 control 快捷插入字段；Tab 缩进。字段以 ##字段ID**解析路径## 形式保存，示例：if ##209**material.vertical_type## in (0,1,5): return 1。脚本末尾必须给 result 赋值。版本号由系统自动生成。"
               },
-              { "type": "input-number", "name": "cut_num", "label": "切流量级", "step": 0.1, "min": 0 },
-              { "type": "input-number", "name": "cut_at", "label": "切流时间(Unix秒)", "min": 0 },
-              { "type": "input-text", "name": "cut_version", "label": "切流版本", "maxLength": 50 },
-              { "type": "textarea", "name": "remark", "label": "备注", "maxLength": 2000 }
+              { "type": "textarea", "name": "remark", "label": "备注", "maxLength": 2000, "rows": 2 }
             ]
           }
         }
       }
     ],
-    "footerToolbar": [
-      "switch-per-page",
-      "pagination"
-    ]
+    "footerToolbar": ["switch-per-page", "pagination"]
   }
 }

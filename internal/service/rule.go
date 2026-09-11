@@ -165,6 +165,71 @@ func SaveRule(ctx context.Context, username string, req *model.SaveRuleRequest) 
 	return resp, nil
 }
 
+// UpdateRuleConfig 整配置一次保存（基本信息 + 规则内容）。
+// 「配置管理」页编辑弹层的一次提交入口：同时保存配置 name/remark 与规则内容，
+// 并沿用 SaveRule 的不可变版本链语义：
+//   - 草稿（status=0）：原地更新 name/remark + 规则；
+//   - 生效（status=1）：fork 新版本（新版本号、status=0、is_latest=1），
+//     老版本 is_latest→2 继续生效，本次提交的 name/remark 写到新版本。
+//
+// 保存后按惯例删除 latest 草稿快照缓存。
+func UpdateRuleConfig(ctx context.Context, username string, req *model.UpdateRuleConfigRequest) (*model.RuleResponse, error) {
+	if err := engine.ValidateRule(req.Rule); err != nil {
+		return nil, errcode.ErrRuleInvalid.WithDetails("%s", err.Error())
+	}
+	ruleScript, bindVar := engine.CompileRule(req.Rule)
+
+	c, err := getConfig(ctx, req.ConfigID)
+	if err != nil {
+		return nil, err
+	}
+	if c.Type != model.ConfigTypeRule {
+		return nil, errcode.ErrConfigStatusInvalid.WithDetails("仅规则类型（type=rule）配置可编辑，当前类型 %s", c.Type)
+	}
+
+	fields, err := data.GetFieldsByIDs(ctx, bindVar)
+	if err != nil {
+		return nil, err
+	}
+	ccBytes, err := json.Marshal(&model.RuleConditionConfig{BindVar: bindVar, Rule: req.Rule})
+	if err != nil {
+		return nil, err
+	}
+	conditionConfig := string(ccBytes)
+
+	now := time.Now().Unix()
+	pack := packOf(ctx, c.ProjectID)
+	name := strings.TrimSpace(req.Name)
+	remark := strings.TrimSpace(req.Remark)
+
+	var resp *model.RuleResponse
+	err = transaction.Do(ctx, func(ctx context.Context) error {
+		target := c
+		if c.Status == model.ConfigStatusActive {
+			// 编辑生效版本 → fork 新版本（不可变发布链），新版本行在下方写入本次提交的 name/remark
+			forked, ferr := forkConfig(ctx, c, username, now)
+			if ferr != nil {
+				return ferr
+			}
+			target = forked
+		}
+		if uerr := data.UpdateConfigBasic(ctx, target.ID, name, remark, username, now); uerr != nil {
+			return uerr
+		}
+		if uerr := upsertRule(ctx, target, pack, ruleScript, conditionConfig, bindVar, req.ResultType, now); uerr != nil {
+			return uerr
+		}
+		resp = buildRuleResponse(target, ruleScript, conditionConfig, bindVar, fields, req.ResultType)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	// 编辑必删 latest（与 SaveRule 一致）
+	_ = data.DelLatest(ctx, pack, c.Logo)
+	return resp, nil
+}
+
 // forkConfig 复制老 config 生成新版本（status=0, is_latest=1, 版本号=时间戳），
 // 并把老版本 is_latest 置为否。线上版本不被动过，形成不可变发布链。
 func forkConfig(ctx context.Context, old *model.Config, username string, now int64) (*model.Config, error) {
@@ -231,6 +296,12 @@ func buildRuleResponse(c *model.Config, ruleScript, conditionConfig string, bind
 	return &model.RuleResponse{
 		ConfigID:        c.ID,
 		ProjectID:       c.ProjectID,
+		ConfigPackID:    c.ConfigPackID,
+		Name:            c.Name,
+		Logo:            c.Logo,
+		Type:            c.Type,
+		StatusText:      model.ConfigStatusText(c.Status),
+		Remark:          c.Remark,
 		Rule:            ruleScript,
 		RuleSource:      extractRuleSource(conditionConfig),
 		ConditionConfig: conditionConfig,
@@ -264,11 +335,18 @@ func GetRule(ctx context.Context, configID uint64) (*model.RuleResponse, error) 
 	if err != nil {
 		if data.IsNotFound(err) {
 			return &model.RuleResponse{
-				ConfigID:   configID,
-				RuleSource: "",
-				ResultType: model.ResultTypePassRejectReview,
-				Engine:     model.EngineStarlark,
-				Version:    c.Version,
+				ConfigID:     configID,
+				ProjectID:    c.ProjectID,
+				ConfigPackID: c.ConfigPackID,
+				Name:         c.Name,
+				Logo:         c.Logo,
+				Type:         c.Type,
+				StatusText:   model.ConfigStatusText(c.Status),
+				Remark:       c.Remark,
+				RuleSource:   "",
+				ResultType:   model.ResultTypePassRejectReview,
+				Engine:       model.EngineStarlark,
+				Version:      c.Version,
 			}, nil
 		}
 		return nil, err
@@ -280,6 +358,13 @@ func GetRule(ctx context.Context, configID uint64) (*model.RuleResponse, error) 
 	}
 	return &model.RuleResponse{
 		ConfigID:        configID,
+		ProjectID:       c.ProjectID,
+		ConfigPackID:    c.ConfigPackID,
+		Name:            c.Name,
+		Logo:            c.Logo,
+		Type:            c.Type,
+		StatusText:      model.ConfigStatusText(c.Status),
+		Remark:          c.Remark,
 		Rule:            r.Rule,
 		RuleSource:      extractRuleSource(r.ConditionConfig),
 		ConditionConfig: r.ConditionConfig,

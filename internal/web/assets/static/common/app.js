@@ -595,6 +595,12 @@
 
   // ---------- 路由主入口：侧栏叶子 / 标签页 / 面包屑 / hash 全部汇到这里 ----------
   function applyKey(key) {
+    // 双保险：被下架的页面直接回首页（navigate 已拦一次，这里防 go() 相等分支直达）
+    if (!findChain(key)) {
+      activeKey = '';
+      location.hash = '#/pages/' + HOME_KEY;
+      return;
+    }
     activeKey = key;
     if (tabs.length === 0) upsertTab(HOME_KEY); // 保证默认首页标签存在
     upsertTab(key);
@@ -611,6 +617,12 @@
   }
   function navigate() {
     var key = pathOf(location.hash);
+    // 页面已从菜单下架（如 rule.json 并入 config.json 后被删除）：hash 还停在旧 key 时
+    // 直接回退首页，避免去 fetch 已删除的 schema → “页面加载失败 HTTP 404”。
+    if (!findChain(key)) {
+      if (key !== HOME_KEY) location.replace('#/pages/' + HOME_KEY);
+      return;
+    }
     // amis CRUD 默认 syncLocation：筛选/翻页时会在 hash 上追加查询串，但页面路径没变。
     // 此时只能“静默同步”，绝不能重建页面，否则每次检索都像整页跳转/刷新，
     // 标签页还会被拼成 field.json?status=1&page=1 之类、菜单高亮失效。
