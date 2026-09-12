@@ -120,7 +120,6 @@ func registerAPIRoutes(r *gin.Engine, cfg *config.Config) {
 
 	v1 := r.Group("/api/v1")
 	registerUser(v1, auth, authLimit)
-	registerOrder(v1, auth)
 	registerProject(v1, auth)
 	registerField(v1, auth)
 	registerConfigPack(v1, auth)
@@ -144,18 +143,6 @@ func registerUser(g *gin.RouterGroup, auth, authLimit gin.HandlerFunc) {
 		users.PUT("/profile", controller.UpdateProfile)
 		users.GET("", controller.ListUsers)
 		users.GET("/:id", controller.GetUser)
-	}
-}
-
-// registerOrder 订单模块路由
-func registerOrder(g *gin.RouterGroup, auth gin.HandlerFunc) {
-	orders := g.Group("/orders", auth)
-	{
-		orders.POST("", controller.CreateOrder)
-		orders.GET("", controller.ListOrders)
-		orders.GET("/:id", controller.GetOrder)
-		orders.PUT("/:id/status", controller.UpdateOrderStatus)
-		orders.DELETE("/:id", controller.DeleteOrder)
 	}
 }
 

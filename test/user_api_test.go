@@ -82,16 +82,6 @@ func newUser(t *testing.T) (uint64, string) {
 	require.NotEmpty(t, login.Token)
 
 	t.Cleanup(func() {
-		// 先把订单 ID 查出来再删流水，不用嵌套子查询当 IN 的参数：
-		// 后者复用 testDB 的 session，可读性差，且外层一旦带上别的条件就会互相污染。
-		var orderIDs []uint64
-		testDB.Model(&model.Order{}).
-			Where("user_id = ?", created.ID).
-			Pluck("id", &orderIDs)
-		if len(orderIDs) > 0 {
-			testDB.Where("order_id IN ?", orderIDs).Delete(&model.OrderStatusLog{})
-		}
-		testDB.Where("user_id = ?", created.ID).Delete(&model.Order{})
 		testDB.Delete(&model.User{}, created.ID)
 	})
 

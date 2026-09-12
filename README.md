@@ -65,22 +65,18 @@ myproject/
 │   ├── controller/                 # HTTP 层（全部包级函数，无 struct 无构造函数）
 │   │   ├── common.go               # 本层公共：参数绑定、pathID、校验错误中文化 + 413 识别
 │   │   ├── system.go               # 系统端点：探针 livez/readyz + 404/405
-│   │   ├── user.go                 # 用户相关接口
-│   │   └── order.go                # 订单相关接口
+│   │   └── user.go                 # 用户相关接口
 │   │
 │   ├── service/                    # 业务逻辑（包级函数，不写 SQL）
-│   │   ├── user.go                 # 用户业务（注册、登录、资料、列表）
-│   │   └── order.go                # 订单业务（创建、状态流转+流水、归属校验）
+│   │   └── user.go                 # 用户业务（注册、登录、资料、列表）
 │   │
 │   ├── data/                       # 数据访问层（包级函数，唯一写 SQL 的地方）
 │   │   ├── common.go               # connDb(ctx) 事务感知连接 + IsNotFound/IsDuplicate
-│   │   ├── user.go                 # 用户表读写
-│   │   └── order.go                # 订单表与流水表读写
+│   │   └── user.go                 # 用户表读写
 │   │
 │   ├── model/                      # 数据模型定义
 │   │   ├── common.go               # 分页请求 + 全项目唯一的分页归一化 NormalizePage
-│   │   ├── user.go                 # 用户模型、请求/响应结构体
-│   │   └── order.go                # 订单模型、请求/响应结构体
+│   │   └── user.go                 # 用户模型、请求/响应结构体
 │   │
 │   ├── middleware/                 # HTTP 中间件
 │   │   ├── common.go               # 本层公共：NoOp 占位中间件
@@ -129,7 +125,6 @@ myproject/
 ├── test/                           # 真库集成测试
 │   ├── setup_test.go               # TestMain：加载配置 / AutoMigrate / resource.Set / 建 engine
 │   ├── user_api_test.go            # 用户接口：注册登录、越权、分页、脱敏
-│   ├── order_api_test.go           # 订单接口：状态流转与流水、归属隔离
 │   ├── framework_test.go           # 框架层（免 DB）：405/413/限流/探针/panic/指标基数/安全头
 │   ├── layering_test.go            # 分层边界（免 DB）：扫 import 表，service 不许 import gorm
 │   └── tx_test.go                  # 事务：提交、回滚、嵌套、句柄失效
@@ -263,7 +258,7 @@ jwt := resource.JWT()
 
 - `common.go`：本层公共能力集中在这一个文件 —— 泛型 `bindJSON[T]` / `bindQuery[T]`（把「重复的 ShouldBind 样板 + 校验错误中文化 + 413 识别」收敛成一处，校验失败返回的字段名用 json tag，不泄露内部结构体名）、`pathID` 路径参数解析、`InitValidator()`（由 `router.Setup` 调一次）
 - `system.go`：系统端点 —— `/livez`（只看进程活着）、`/readyz`（真探下游，不健康返 503）、404 / 405 统一成 JSON 而不是 gin 默认的纯文本。它们不属于任何业务模块也不经过 service，所以单独一个文件
-- `user.go` / `order.go`：业务接口，每个模块一个文件
+- `user.go`：业务接口，每个模块一个文件
 
 #### 业务核心
 
@@ -271,26 +266,25 @@ jwt := resource.JWT()
 
 ```go
 // 没有 interface、没有 struct、没有构造函数，controller 直接调
-func CreateOrder(ctx context.Context, userID uint64, req *model.CreateOrderRequest) (*model.OrderResponse, error) {
+func CreateProject(ctx context.Context, req *model.CreateProjectRequest) (*model.ProjectResponse, error) {
     ...
-    err := data.CreateOrder(ctx, order)          // 不碰 gorm
+    err := data.CreateProject(ctx, project)      // 不碰 gorm
     if data.IsDuplicate(err) { ... }             // 数据层错误 → 业务错误
 }
 ```
 
 - `user.go`：用户业务（注册、登录、资料更新、列表）
-- `order.go`：创建重试、状态流转校验 + 流水、归属校验、删除限制
 
 **`internal/data/`** — 数据访问层，也全部是包级函数。这是**唯一允许出现 SQL 与 gorm 调用的地方**。
 
 ```go
 // 需要连接就调 connDb(ctx) —— 事务中自动复用事务句柄，
 // 所以同一个函数在事务内外都能用，不需要写第二套 XxxWithTx
-func UpdateOrderStatus(ctx context.Context, id uint64, from, to int8) (int64, error) {
-    res := connDb(ctx).Model(&model.Order{}).
-        Where("id = ? AND status = ?", id, from).
-        Update("status", to)
-    return res.RowsAffected, res.Error
+func UpdateProject(ctx context.Context, id uint64, req *model.UpdateProjectRequest) error {
+    res := connDb(ctx).Model(&model.Project{}).
+        Where("id = ?", id).
+        Updates(map[string]interface{}{"name": req.Name, "status": req.Status})
+    return res.Error
 }
 ```
 
@@ -469,35 +463,7 @@ CREATE TABLE users (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
--- 订单表（金额用 BIGINT 存「分」，不用 DECIMAL/FLOAT 走浮点）
-CREATE TABLE orders (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    order_no VARCHAR(64) NOT NULL UNIQUE,
-    user_id BIGINT UNSIGNED NOT NULL,
-    total_amount_cents BIGINT NOT NULL COMMENT '金额，单位：分',
-    status TINYINT DEFAULT 0 COMMENT '0-待支付 1-已支付 2-已发货 3-已完成 4-已取消',
-    remark VARCHAR(255),
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_user_id (user_id)
-);
-
--- 订单状态流水表（状态变更审计，改状态和写流水在同一个事务里）
-CREATE TABLE order_status_logs (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    order_id BIGINT UNSIGNED NOT NULL,
-    from_status TINYINT NOT NULL,
-    to_status TINYINT NOT NULL,
-    operator_id BIGINT UNSIGNED NOT NULL COMMENT '操作人 user_id',
-    created_at DATETIME(3),
-    INDEX idx_order_status_logs_order_id (order_id)
-);
 ```
-
-> 若已有旧的 `total_amount DECIMAL(10,2)` 数据，迁移方式：
-> `ALTER TABLE orders ADD COLUMN total_amount_cents BIGINT NOT NULL DEFAULT 0;`
-> `UPDATE orders SET total_amount_cents = ROUND(total_amount * 100);`
-> 确认无误后再删除旧列。`AutoMigrate` 不会做这类数据搬迁。
 
 ### 5. 运行项目
 
@@ -749,24 +715,17 @@ Controller / Service / Data 都是包级函数，`data` 需要连接时自己去
 
 ### 事务用法
 
-判断标准只有一条：**一个业务动作是否对应多次写入**。单条 INSERT/UPDATE 本身就是原子的，GORM 默认还会替它套一层事务，再包一次 `transaction.Do` 只是多一次 BEGIN/COMMIT 往返 —— 所以 `service.CreateOrder` 里没有事务。
+判断标准只有一条：**一个业务动作是否对应多次写入**。单条 INSERT/UPDATE 本身就是原子的，GORM 默认还会替它套一层事务，再包一次 `transaction.Do` 只是多一次 BEGIN/COMMIT 往返 —— 所以单次写操作不需要显式包事务。
 
-真实用例见 `internal/service/order.go` 的 `UpdateOrderStatus`：改 `orders.status` 和往 `order_status_logs` 追加流水必须同生同死，否则要么查不出「谁改的」，要么留下一条与事实不符的假记录。
+真实用例：一个业务动作要落两张表（例如写主表的同时写一张审计表），两者必须同生同死，否则事后无法审计。用 `transaction.Do` 把它们包在一起即可：
 
 ```go
 return transaction.Do(ctx, func(ctx context.Context) error {
-	// 带原状态做条件更新，影响 0 行说明状态已被并发请求改掉
-	affected, err := data.UpdateOrderStatus(ctx, id, order.Status, req.Status)
-	if err != nil {
+	// 同一事务里多次写入，任一失败整体回滚
+	if err := connDb(ctx).Create(&primary).Error; err != nil {
 		return err
 	}
-	if affected == 0 {
-		return errcode.ErrInvalidOrderStatus.WithDetails("订单状态已被其他操作变更，请重新查询后重试")
-	}
-
-	return data.CreateOrderStatusLog(ctx, &model.OrderStatusLog{
-		OrderID: id, FromStatus: order.Status, ToStatus: req.Status, OperatorID: userID,
-	})
+	return connDb(ctx).Create(&audit).Error
 })
 ```
 
@@ -879,18 +838,6 @@ histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by 
 | GET | `/api/v1/users/:id` | 获取指定用户的公开信息（不含 email/phone/status） | - |
 | DELETE | `/api/v1/users/:id` | 删除用户（**仅限本人**） | - |
 
-#### 订单接口
-
-订单接口均带归属校验，只能访问自己的订单。
-
-| 方法 | 路径 | 描述 | 请求体/参数 |
-|------|------|------|-------------|
-| POST | `/api/v1/orders` | 创建订单 | `CreateOrderRequest` |
-| GET | `/api/v1/orders` | 获取订单列表 | `?page=1&page_size=10&status=0` |
-| GET | `/api/v1/orders/:id` | 获取订单详情 | - |
-| PUT | `/api/v1/orders/:id/status` | 更新订单状态 | `UpdateOrderStatusRequest` |
-| DELETE | `/api/v1/orders/:id` | 删除订单 | - |
-
 ### 响应格式
 
 所有响应都带 `request_id`，与日志中的 `request_id` 一致，可直接用于排查。
@@ -952,29 +899,6 @@ histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by 
 | created_at | time | 创建时间 |
 | updated_at | time | 更新时间 |
 
-### 订单模型 (Order)
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| id | uint64 | 订单ID |
-| order_no | string | 订单号（唯一） |
-| user_id | uint64 | 用户ID |
-| total_amount_cents | int64 | 订单金额，单位：分 |
-| status | int8 | 状态（见下表） |
-| remark | string | 备注 |
-| created_at | time | 创建时间 |
-| updated_at | time | 更新时间 |
-
-金额一律用 `int64` 存「分」。`float64` 无法精确表示 0.1 这类十进制小数，一旦出现累加、折扣、对账，误差必然出现且无法追溯。响应里同时给出 `total_amount_cents`（用于计算）和 `total_amount_text`（用于展示，如 `"19.99"`），两边都不碰浮点。
-
-**订单状态流转：**
-
-```
-待支付(0) ──→ 已支付(1) ──→ 已发货(2) ──→ 已完成(3)
-    │              │
-    └──→ 已取消(4) ←┘
-```
-
 ## 错误码
 
 ### 通用错误 (10xxx)
@@ -1014,14 +938,6 @@ histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by 
 | 30004 | 400 | 密码错误 |
 | 30005 | 403 | 用户已被禁用 |
 
-### 订单错误 (40xxx)
-
-| 错误码 | HTTP 状态码 | 描述 |
-|--------|------------|------|
-| 40001 | 404 | 订单不存在 |
-| 40002 | 409 | 无效的订单状态（状态流转非法或并发冲突） |
-| 40003 | 400 | 订单无法删除 |
-
 ## 测试
 
 框架不留 mock 注入点，所以业务链路一律**打真实数据库**。理由很直接：mock 出来的 DB 只能验证「我调了这个方法」，验不了唯一键冲突、条件更新的 `RowsAffected`、事务回滚这些真正会出问题的地方 —— 而这些恰好是本框架的核心机制。
@@ -1029,9 +945,9 @@ histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by 
 测试分两类：
 
 - **免 DB 的框架测试** `test/framework_test.go` —— 405/413、限流、探针绕过限流、panic 记成 500、指标 route 标签是模板、安全头。`test/layering_test.go` 扫 import 表守分层边界（service 不许 import gorm、controller 不许 import data、data 不许 import errcode）。这两个任何环境都能跑。
-- **真库集成测试** `test/user_api_test.go`、`order_api_test.go`、`tx_test.go` —— 走完整 HTTP 链路（`httptest` + 真 engine + 真库），用例自己 `t.Cleanup` 清数据。连不上库时会 `t.Skip` 并打印起库命令，不会静默通过。
+- **真库集成测试** `test/user_api_test.go`、`tx_test.go` —— 走完整 HTTP 链路（`httptest` + 真 engine + 真库），用例自己 `t.Cleanup` 清数据。连不上库时会 `t.Skip` 并打印起库命令，不会静默通过。
 
-`test/setup_test.go` 的 `TestMain` 负责：加载 `configs/config.dev.yaml` → 关掉限流与 body 日志 → 连库 → `AutoMigrate` 三张表 → `health.Init` → `resource.Set` → `router.Setup` 建出全局 engine。
+`test/setup_test.go` 的 `TestMain` 负责：加载 `configs/config.dev.yaml` → 关掉限流与 body 日志 → 连库 → `AutoMigrate` 所需表 → `health.Init` → `resource.Set` → `router.Setup` 建出全局 engine。
 
 起本地依赖并跑全量：
 

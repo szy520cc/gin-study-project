@@ -1,7 +1,7 @@
 // Package service 是业务逻辑层：校验业务规则、划事务边界、把数据层错误翻译成业务错误。
 //
 // 这一层全部是包级函数，没有 interface、没有构造函数、没有 struct 字段注入 ——
-// controller 直接 service.CreateOrder(ctx, ...) 调用。
+// controller 直接 service.CreateProject(ctx, ...) 调用。
 //
 // SQL 不写在这里：所有数据库读写都走 internal/data 的包级函数。
 // 这一层看不见 *gorm.DB，也不该出现 Where/Joins；判断错误类型用

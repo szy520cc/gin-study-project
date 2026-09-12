@@ -86,7 +86,7 @@ func TestBindQueryErrorHidesInternals(t *testing.T) {
 	// 绑参失败发生在查库之前，用现签的 token 即可，不需要真实用户
 	token := testToken(t)
 
-	code, resp := do(t, http.MethodGet, "/api/v1/orders?page=abc", token, nil)
+	code, resp := do(t, http.MethodGet, "/api/v1/users?page=abc", token, nil)
 	require.Equal(t, http.StatusBadRequest, code)
 	assert.NotContains(t, resp.Details, "strconv")
 	assert.NotContains(t, resp.Details, "ParseInt")

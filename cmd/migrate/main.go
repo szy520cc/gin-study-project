@@ -66,8 +66,6 @@ func main() {
 	// 新增模型时在这里登记
 	models := []interface{}{
 		&model.User{},
-		&model.Order{},
-		&model.OrderStatusLog{},
 		&model.Project{},
 		&model.Field{},
 		&model.ConfigPack{},

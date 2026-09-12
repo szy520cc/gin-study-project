@@ -92,7 +92,7 @@ func bindError(err error) error {
 
 	// 类型不匹配（如 {"total_amount_cents":"abc"}）走的是 json 包的错误，
 	// 它的 Error() 里带 Go 结构体名：
-	//   json: cannot unmarshal string into Go struct field CreateOrderRequest.total_amount_cents of type int64
+	//   json: cannot unmarshal string into Go struct field CreateProjectRequest.total_amount_cents of type int64
 	// 只回字段名和期望类型，不把内部结构体名吐出去。
 	var typeErr *json.UnmarshalTypeError
 	if errors.As(err, &typeErr) {
