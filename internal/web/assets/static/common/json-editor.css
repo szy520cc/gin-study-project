@@ -16,6 +16,20 @@
   --je-valid-soft:    rgba(22, 163, 74, .10);
   --je-danger:        #dc2626;
   --je-danger-soft:   rgba(220, 38, 38, .10);
+  /* 语法着色（对齐 VS Code Light+ 的 JSON 观感） */
+  --je-key:           #a31515;
+  --je-str:           #0451a5;
+  --je-num:           #098658;
+  --je-lit:           #0000ff;
+  --je-punct:         #4b5563;
+  --je-b1:            #b7791f;
+  --je-b2:            #9b3fbf;
+  --je-b3:            #1a73e8;
+  --je-guide:         rgba(15, 23, 42, .20);
+  --je-sel:           rgba(47, 111, 237, .22);
+  --je-gutter-w:      42px;
+  --je-gutter-bg1:    #fafbfd;
+  --je-gutter-bg2:    #f5f7fa;
   --je-font: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
   --je-radius:        8px;
   --je-radius-sm:     6px;
@@ -124,42 +138,100 @@
 }
 .je-wrap.is-invalid .je-error { color: var(--je-danger); }
 
-/* ---------- 编辑区（contenteditable div） ---------- */
+/* =========================================================
+   编辑区：两层叠放
+   .je-hl    负责「着色显示」（键/值/括号不同颜色 + 缩进参考虚线）
+   .je-proxy 在上一层，负责输入、光标、选区（文字透明）
+   两层必须共用完全相同的字体与盒模型，否则会错位。
+   ========================================================= */
+.je-main { position: relative; }
+
+/* 行号列：定宽、右侧对齐，只跟随纵向滚动 */
+.je-gutter {
+  position: absolute;
+  top: 0; left: 0; bottom: 0;
+  width: var(--je-gutter-w);
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+  z-index: 0;
+  background: linear-gradient(90deg, var(--je-gutter-bg1) 0%, var(--je-gutter-bg2) 100%);
+  border-right: 1px solid var(--je-border-soft);
+}
+.je-gutter-inner {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  padding: 12px 9px 12px 0;
+  white-space: pre;
+  text-align: right;
+  font-family: var(--je-font);
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--je-muted-soft);
+  will-change: transform;
+}
+
+.je-hl {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+.je-hl-inner,
 .je-proxy {
+  margin: 0;
+  padding: 12px 14px 12px calc(var(--je-gutter-w) + 14px); /* 左侧腾出行号列 */
+  font: 13px / 1.65 var(--je-font);
+  white-space: pre-wrap;
+  word-break: break-word;
+  letter-spacing: normal;
+  tab-size: 2;
+  box-sizing: border-box;
+}
+.je-hl-inner {
+  position: absolute;
+  top: 0; left: 0;
+  min-width: 100%;
+  color: var(--je-text);
+  will-change: transform;
+}
+.je-proxy {
+  position: relative;
+  z-index: 1;
   min-height: 130px;
   max-height: 300px;
   overflow: auto;
-  padding: 12px 14px;
-  font: 13px / 1.65 var(--je-font);
-  color: var(--je-text);
-  white-space: pre-wrap;
-  word-break: break-word;
   outline: none;
-  background: var(--je-panel);
+  background: transparent;
+  color: transparent;              /* 文字颜色只在 .je-hl 上 */
+  caret-color: var(--je-text);
   cursor: text;
-  tab-size: 2;
+  scrollbar-width: none;           /* 隐藏滚动条：两层内容宽度才能完全一致 */
 }
-.je-proxy:empty::before {
-  content: '在此输入 JSON…';
-  color: var(--je-muted-soft);
-  pointer-events: none;
-  font-style: italic;
-}
+.je-proxy::-webkit-scrollbar { width: 0; height: 0; }
+.je-proxy::selection { background: var(--je-sel); }
 .je-wrap.is-disabled .je-proxy { cursor: default; }
+.je-ph { color: var(--je-muted-soft); font-style: italic; }
 
-/* 自定义滚动条 */
-.je-proxy::-webkit-scrollbar { width: 8px; height: 8px; }
-.je-proxy::-webkit-scrollbar-track { background: transparent; }
-.je-proxy::-webkit-scrollbar-thumb {
-  background: rgba(15, 23, 42, .18);
-  border-radius: 4px;
-  border: 2px solid var(--je-panel);
-  background-clip: padding-box;
-}
-.je-proxy::-webkit-scrollbar-thumb:hover {
-  background: rgba(15, 23, 42, .32);
-  background-clip: padding-box;
-  border: 2px solid var(--je-panel);
+/* ---------- 语法着色 ---------- */
+.jt-key   { color: var(--je-key); }
+.jt-str   { color: var(--je-str); }
+.jt-num   { color: var(--je-num); }
+.jt-lit   { color: var(--je-lit); }
+.jt-punct { color: var(--je-punct); }
+.jt-b0    { color: var(--je-b3); }
+.jt-b1    { color: var(--je-b1); }
+.jt-b2    { color: var(--je-b2); }
+
+/* ---------- 缩进参考虚线 ----------
+   行首空白单独包一层：每 2ch（一级缩进）画一条竖向虚线，
+   行有多深就画几条，正好对应 JSON 的层级。 */
+.jt-ind {
+  background-image: radial-gradient(circle, var(--je-guide) 0.7px, transparent 1.1px);
+  background-size: 2ch 6px;
+  background-position: -1ch 0;
+  background-repeat: repeat;
 }
 
 /* ---------- 深色模式 ---------- */
@@ -172,8 +244,18 @@
     --je-muted:         #9ca3af;
     --je-muted-soft:    #6b7280;
     --je-shadow-1:      0 1px 2px rgba(0, 0, 0, .3);
+    --je-key:           #e06c75;
+    --je-str:           #98c379;
+    --je-num:           #d19a66;
+    --je-lit:           #56b6c2;
+    --je-punct:         #9ca3af;
+    --je-b1:            #d19a66;
+    --je-b2:            #c678dd;
+    --je-b3:            #61afef;
+    --je-guide:         rgba(255, 255, 255, .18);
+    --je-sel:           rgba(122, 162, 255, .28);
+    --je-gutter-bg1:    #1f1f2e;
+    --je-gutter-bg2:    #1a1a26;
   }
   .je-toolbar { background: linear-gradient(180deg, #1f1f2e 0%, #1a1a26 100%); }
-  .je-proxy::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .15); background-clip: padding-box; border: 2px solid var(--je-panel); }
-  .je-proxy::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, .25); background-clip: padding-box; border: 2px solid var(--je-panel); }
 }

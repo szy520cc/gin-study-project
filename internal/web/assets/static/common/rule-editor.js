@@ -180,7 +180,12 @@
     toolbar.innerHTML = '双击 <b>Ctrl</b> 获取字段列表，面板内可搜索过滤；Tab 缩进';
     var ed = document.createElement('div');
     ed.className = 're-editor';
-    ed.setAttribute('contenteditable', 'plaintext-only');
+    /* 必须用 "true" 而不是 "plaintext-only"：
+       amis 的 Table 快速编辑在 document.body 上挂了全局 keydown，放行条件是
+       target.tagName ∈ {INPUT,TEXTAREA} 或 target.contentEditable === "true"；
+       "plaintext-only" 两者都不满足 → 上下左右方向键被 preventDefault，光标无法移动。
+       富文本粘贴改由 paste 监听强制转纯文本，内容仍是纯文本。 */
+    ed.setAttribute('contenteditable', 'true');
     ed.setAttribute('spellcheck', 'false');
     ed.setAttribute('data-placeholder', '在此输入 Starlark 规则…');
     var refs = document.createElement('div');
@@ -514,6 +519,15 @@
     ed.addEventListener('scroll', gutterSyncScroll);
     ed.addEventListener('compositionstart', function () { st.composing = true; });
     ed.addEventListener('compositionend', function () { st.composing = false; commit(); });
+    /* 编辑区为 contenteditable="true"（为绕开 amis 的方向键拦截），
+       粘贴必须强制转纯文本，否则网页富文本会带样式进 DOM。 */
+    ed.addEventListener('paste', function (e) {
+      e.preventDefault();
+      var cd = e.clipboardData || window.clipboardData;
+      var text = cd ? cd.getData('text') : '';
+      if (text == null) return;
+      insertText(String(text).replace(/\r\n?/g, '\n'));
+    });
     dd.addEventListener('mousedown', function (e) {
       // 只有点按钮才阻止默认，保证点击搜索框能正常获得焦点输入
       if (e.target.closest && e.target.closest('.re-item')) e.preventDefault();

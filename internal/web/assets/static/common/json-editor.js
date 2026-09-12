@@ -54,6 +54,71 @@
   }
 
   /* =========================================================
+     工具：语法着色（编辑区文字透明，颜色由这层负责渲染）
+     ========================================================= */
+  function esc(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  // 字符串(可带冒号→键) | 数字 | 字面量 | 括号/逗号/冒号 | 空白/其它
+  var TOKEN_RE = /("(?:\\.|[^"\\])*")([ \t]*:)?|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|(true|false|null)|([{}\[\],:])|([\s\S])/g;
+
+  function hlLineTokens(line, state) {
+    var out = '';
+    TOKEN_RE.lastIndex = 0;
+    var m;
+    while ((m = TOKEN_RE.exec(line)) !== null) {
+      if (m.index === TOKEN_RE.lastIndex) TOKEN_RE.lastIndex++; // 防空匹配死循环
+      if (m[1] !== undefined) {
+        out += (m[2] !== undefined)
+          ? '<span class="jt-key">' + esc(m[1]) + '</span>' + esc(m[2])
+          : '<span class="jt-str">' + esc(m[1]) + '</span>';
+      } else if (m[3] !== undefined) {
+        out += '<span class="jt-num">' + esc(m[3]) + '</span>';
+      } else if (m[4] !== undefined) {
+        out += '<span class="jt-lit">' + esc(m[4]) + '</span>';
+      } else if (m[5] !== undefined) {
+        var ch = m[5], cls = '';
+        if (ch === '{' || ch === '[') { state.depth++; cls = 'jt-b' + (state.depth % 3); }
+        else if (ch === '}' || ch === ']') { cls = 'jt-b' + (state.depth % 3); state.depth = Math.max(0, state.depth - 1); }
+        out += cls ? '<span class="' + cls + '">' + esc(ch) + '</span>' : '<span class="jt-punct">' + esc(ch) + '</span>';
+      } else {
+        out += esc(m[0]);
+      }
+    }
+    return out;
+  }
+
+  /* 行号列文本：与内容行数严格一一对应（空内容也算 1 行） */
+  function gutterNumbers(text) {
+    var n = String(text == null ? '' : text).split('\n').length;
+    var out = '';
+    for (var i = 1; i <= n; i++) out += (i > 1 ? '\n' : '') + i;
+    return out;
+  }
+
+  /* 逐行着色；行首空白单独包一层，用来画缩进参考虚线 */
+  function highlight(text) {
+    var s = String(text == null ? '' : text);
+    if (s === '') return '<span class="je-ph">在此输入 JSON…</span>';
+    var lines = s.split('\n');
+    var state = { depth: 0 };
+    var html = '';
+    for (var i = 0; i < lines.length; i++) {
+      if (i > 0) html += '\n';
+      var line = lines[i];
+      var m = /^[ \t]+/.exec(line);
+      if (m) {
+        html += '<span class="jt-ind">' + esc(m[0]) + '</span>';
+        line = line.slice(m[0].length);
+      }
+      html += hlLineTokens(line, state);
+    }
+    return html;
+  }
+
+  /* =========================================================
      工具：DOM ↔ 纯文本（编辑区只由文本节点 + <br> 组成）
      ========================================================= */
   function readText(root) {
@@ -135,6 +200,8 @@
   function JsonEditorControl(props) {
     var React = ReactRef;
     var hostRef = React.useRef(null);
+    var hlRef = React.useRef(null);      // 语法着色层内层（跟着编辑区一起滚）
+    var gutterRef = React.useRef(null);  // 行号列内层（只跟随纵向滚动）
     var emittedRef = React.useRef(null);
     var statusState = React.useState({ valid: true, error: '' });
     var status = statusState[0];
@@ -163,11 +230,30 @@
       return host ? readText(host) : '';
     }
 
+    /* 行号列 / 着色层 / 编辑区是三层：文字只在着色层有颜色，编辑区文字透明、只负责光标与选区 */
+    function syncScroll() {
+      var host = hostRef.current;
+      if (!host) return;
+      if (hlRef.current) {
+        hlRef.current.style.transform = 'translate(' + (-host.scrollLeft) + 'px,' + (-host.scrollTop) + 'px)';
+      }
+      if (gutterRef.current) {
+        gutterRef.current.style.transform = 'translateY(' + (-host.scrollTop) + 'px)';
+      }
+    }
+    function renderHl() {
+      var text = readNow();
+      if (hlRef.current) hlRef.current.innerHTML = highlight(text);
+      if (gutterRef.current) gutterRef.current.textContent = gutterNumbers(text);
+      syncScroll();
+    }
+
     /* 用整段纯文本重写编辑区并复位光标（自动缩进/配对等编辑动作走这里） */
     function applyText(text, caret) {
       var host = hostRef.current;
       if (!host) return;
       setHostText(host, text);
+      renderHl();
       emit(text);
       if (caret != null) {
         if (document.activeElement !== host) { try { host.focus(); } catch (e) {} }
@@ -183,7 +269,11 @@
       setHostText(host, value);
       emittedRef.current = value;
       refreshStatus(value);
+      renderHl();
     }, [value]);
+
+    /* 首帧补一次着色（此时两个 ref 都已挂好） */
+    React.useEffect(function () { renderHl(); }, []);
 
     /* 挂载：把 div 设为可编辑并写入首屏值。
        注意必须用 "true"，不能用 "plaintext-only"：
@@ -205,6 +295,7 @@
 
     function handleInput() {
       if (disabled) return;
+      renderHl();
       emit(readNow());
     }
 
@@ -378,15 +469,24 @@
         React.createElement('span', { className: 'je-error' },
           status.valid ? '✓ 合法 JSON' : ('✕ ' + status.error))
       ),
-      React.createElement('div', {
-        ref: setHostRef,
-        className: 'je-proxy',
-        spellCheck: false,
-        onInput: handleInput,
-        onKeyDown: handleKeyDown,
-        onPaste: handlePaste,
-        onBlur: handleBlur
-      })
+      React.createElement('div', { className: 'je-main' },
+        React.createElement('div', { className: 'je-gutter', 'aria-hidden': 'true' },
+          React.createElement('div', { className: 'je-gutter-inner', ref: gutterRef })
+        ),
+        React.createElement('div', { className: 'je-hl', 'aria-hidden': 'true' },
+          React.createElement('div', { className: 'je-hl-inner', ref: hlRef })
+        ),
+        React.createElement('div', {
+          ref: setHostRef,
+          className: 'je-proxy',
+          spellCheck: false,
+          onInput: handleInput,
+          onKeyDown: handleKeyDown,
+          onPaste: handlePaste,
+          onScroll: syncScroll,
+          onBlur: handleBlur
+        })
+      )
     );
   }
   JsonEditorControl.displayName = 'JsonEditorControl';
