@@ -203,6 +203,14 @@
     var hlRef = React.useRef(null);      // 语法着色层内层（跟着编辑区一起滚）
     var gutterRef = React.useRef(null);  // 行号列内层（只跟随纵向滚动）
     var emittedRef = React.useRef(null);
+    /* 撤回 / 重做：智能编辑是「整段重写 DOM」，浏览器原生 undo 栈会被冲掉，只能自建 */
+    var undoRef = React.useRef([]);
+    var redoRef = React.useRef([]);
+    var histAtRef = React.useRef(0);      // 上次入栈时刻（合并连续输入用）
+    var histCaretRef = React.useRef(-1);  // 上次编辑后的光标（判断输入是否连续）
+    var histSoftRef = React.useRef(false);
+    var histTick = React.useState(0);     // 只用来在历史栈变化时触发重渲染
+    var bumpHist = histTick[1];
     var statusState = React.useState({ valid: true, error: '' });
     var status = statusState[0];
     var setStatus = statusState[1];
@@ -230,6 +238,59 @@
       return host ? readText(host) : '';
     }
 
+    /* ---------------- 撤回 / 重做 ---------------- */
+
+    function snapshot() {
+      var host = hostRef.current;
+      var range = host ? caretRangeOf(host) : null;
+      return { text: readNow(), caret: range ? range.start : null };
+    }
+    function noteCaret() {
+      var host = hostRef.current;
+      var range = host ? caretRangeOf(host) : null;
+      histCaretRef.current = range ? range.start : -1;
+    }
+    /* 入栈「本次编辑之前」的状态。
+       soft=true 表示连续输入（打字/删除）：700ms 内且光标接得上就合并成一步，
+       否则敲一个字就占一格撤回，很难用。 */
+    function pushHistory(soft) {
+      var host = hostRef.current;
+      if (!host) return;
+      var now = Date.now();
+      var range = caretRangeOf(host);
+      var caret = range ? range.start : null;
+      if (soft && histSoftRef.current && (now - histAtRef.current) < 700
+        && caret != null && caret === histCaretRef.current) {
+        histAtRef.current = now;
+        return;
+      }
+      undoRef.current.push({ text: readNow(), caret: caret });
+      if (undoRef.current.length > 300) undoRef.current.shift();
+      redoRef.current.length = 0;
+      histAtRef.current = now;
+      histSoftRef.current = soft;
+      bumpHist(function (n) { return n + 1; });
+    }
+    function applySnapshot(s) {
+      if (!s) return;
+      var text = s.text == null ? '' : s.text;
+      applyText(text, s.caret == null ? null : Math.min(s.caret, text.length), 'none');
+      histAtRef.current = 0;     // 撤回/重做之后不要并进后续输入
+      histSoftRef.current = false;
+    }
+    function doUndo() {
+      if (!undoRef.current.length) return;
+      redoRef.current.push(snapshot());
+      applySnapshot(undoRef.current.pop());
+      bumpHist(function (n) { return n + 1; });
+    }
+    function doRedo() {
+      if (!redoRef.current.length) return;
+      undoRef.current.push(snapshot());
+      applySnapshot(redoRef.current.pop());
+      bumpHist(function (n) { return n + 1; });
+    }
+
     /* 行号列 / 着色层 / 编辑区是三层：文字只在着色层有颜色，编辑区文字透明、只负责光标与选区 */
     function syncScroll() {
       var host = hostRef.current;
@@ -248,10 +309,12 @@
       syncScroll();
     }
 
-    /* 用整段纯文本重写编辑区并复位光标（自动缩进/配对等编辑动作走这里） */
-    function applyText(text, caret) {
+    /* 用整段纯文本重写编辑区并复位光标（自动缩进/配对等编辑动作走这里）。
+       hist: 'none' 不入栈（撤回/重做回放）；'soft' 连续输入可合并；默认硬入栈。 */
+    function applyText(text, caret, hist) {
       var host = hostRef.current;
       if (!host) return;
+      if (hist !== 'none') pushHistory(hist === 'soft');
       setHostText(host, text);
       renderHl();
       emit(text);
@@ -259,17 +322,23 @@
         if (document.activeElement !== host) { try { host.focus(); } catch (e) {} }
         setCaret(host, caret);
       }
+      noteCaret();
     }
 
     /* 外部值（回显 / initApi / 重置）同步进编辑区；忽略自己刚抛出去的值，避免光标跳动 */
     React.useEffect(function () {
       var host = hostRef.current;
       if (!host) return;
-      if (emittedRef.current === value) return;
+      if (emittedRef.current === value) return;   // 自己抛出去的值，不算外部变更
       setHostText(host, value);
       emittedRef.current = value;
       refreshStatus(value);
       renderHl();
+      noteCaret();
+      // 外部换了一篇内容（回显 / 重置 / 切换配置），旧历史已无意义
+      undoRef.current.length = 0;
+      redoRef.current.length = 0;
+      bumpHist(function (n) { return n + 1; });
     }, [value]);
 
     /* 首帧补一次着色（此时两个 ref 都已挂好） */
@@ -285,6 +354,16 @@
       hostRef.current = el;
       if (!el || !el.setAttribute) return;
       el.setAttribute('contenteditable', disabled ? 'false' : 'true');
+      /* 原生输入（打字/删除）在 DOM 已变之后才触发 input，拿不到「改前」状态，
+         所以在 beforeinput 里先记一笔历史（连续输入会被合并成一步）。 */
+      if (!el.__jeBI) {
+        el.__jeBI = true;
+        el.addEventListener('beforeinput', function (e) {
+          var host = hostRef.current;
+          if (!host || host.getAttribute('contenteditable') === 'false') return;
+          pushHistory(/^(insert|delete)/i.test(String(e.inputType || '')));
+        });
+      }
       if (!el.__jeInited) {
         el.__jeInited = true;
         var v = (emittedRef.current == null) ? value : emittedRef.current;
@@ -297,6 +376,7 @@
       if (disabled) return;
       renderHl();
       emit(readNow());
+      noteCaret();
     }
 
     /* ---------------- 智能编辑（对齐 Monaco JSON 的默认手感） ---------------- */
@@ -381,7 +461,17 @@
     function handleKeyDown(e) {
       if (disabled) return;
       if (e.isComposing || e.keyCode === 229) return;      // 输入法组词中，一律放行
-      if (e.ctrlKey || e.metaKey || e.altKey) return;      // 组合键放行
+      var mod = e.ctrlKey || e.metaKey;
+      if (mod && !e.altKey) {                              // 撤回 / 重做
+        var k = String(e.key || '').toLowerCase();
+        if (k === 'z') {
+          e.preventDefault();
+          if (e.shiftKey) doRedo(); else doUndo();
+          return;
+        }
+        if (k === 'y') { e.preventDefault(); doRedo(); return; }
+      }
+      if (e.ctrlKey || e.metaKey || e.altKey) return;      // 其余组合键放行
 
       if (e.key === 'Tab') {
         e.preventDefault();
@@ -456,6 +546,18 @@
         onClick: function () { applyTransform(fn); }
       }, label);
     }
+    function histBtn(label, tip, enabled, fn) {
+      return React.createElement('button', {
+        type: 'button',
+        className: 'je-btn',
+        title: tip,
+        disabled: disabled || !enabled,
+        onMouseDown: function (e) { e.preventDefault(); },
+        onClick: fn
+      }, label);
+    }
+    var canUndo = undoRef.current.length > 0;
+    var canRedo = redoRef.current.length > 0;
 
     return React.createElement('div', {
       className: 'je-wrap'
@@ -463,7 +565,9 @@
         + (status.valid ? ' is-valid' : ' is-invalid')
     },
       React.createElement('div', { className: 'je-toolbar' },
-        React.createElement('span', { className: 'je-hint' }, '自动缩进 · 括号补全 · Tab 2 空格'),
+        React.createElement('span', { className: 'je-hint' }, '自动缩进 · 括号补全 · Ctrl+Z 撤回'),
+        histBtn('\u21b6 撤回', '\u64a4\u56de (Ctrl+Z)', canUndo, doUndo),
+        histBtn('\u21b7 重做', '\u91cd\u505a (Ctrl+Shift+Z / Ctrl+Y)', canRedo, doRedo),
         toolBtn('格式化', toPretty),
         toolBtn('压缩', toCompact),
         React.createElement('span', { className: 'je-error' },
