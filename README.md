@@ -34,6 +34,7 @@
 | `pkg/` | 与业务无关的基础设施，不依赖 `internal/` | 换日志库、加一种缓存、扩错误码体系时 |
 | `test/` | 跨层的集成/端到端测试 | 补接口级、中间件级回归时 |
 | `docs/` `scripts/` `logs/` | API 文档产物、构建部署脚本、运行期日志 | 一般不手改 |
+| `docs/planning/` | **所有过程性文档**（需求规划、架构设计、方案、评审、复盘） | 写规划/设计文档时只写在这里 |
 
 ```
 myproject/
@@ -122,6 +123,7 @@ myproject/
 │   └── deploy.sh                   # 部署脚本
 │
 ├── docs/swagger/                   # Swagger API 文档（make swagger 生成）
+├── docs/planning/                  # 过程性文档统一放这里（需求规划/架构/方案/评审/复盘）
 ├── logs/                           # 日志目录，按小时轮转 app_YYYYMMDDHH.log
 │
 ├── test/                           # 真库集成测试
@@ -326,6 +328,10 @@ func UpdateOrderStatus(ctx context.Context, id uint64, from, to int8) (int64, er
 #### 辅助目录
 
 - **`test/`** — 真库集成测试：`setup_test.go` 在 `TestMain` 里连库、AutoMigrate、`resource.Set` 并建好 engine，`user_api_test.go` / `order_api_test.go` / `tx_test.go` 走完整链路打真实数据库，`framework_test.go` 与 `layering_test.go` 不依赖 DB（前者验框架行为，后者扫 import 表守分层边界）。连不上库时 DB 相关用例会显式 skip 并打印如何起库。单包内的测试放在各自包里（`internal/config/config_test.go`、`pkg/transaction/transaction_test.go` 等）。
+- **`docs/planning/`** — **过程性文档的唯一落脚点**：需求规划（`*_PLAN.md`）、架构设计（`ARCHITECTURE.md`、ADR）、技术方案、评审意见、复盘、调研笔记，全部写在这里。整个 `docs/` 已在 `.gitignore` 中，不入版本库。
+  - 约定动因：过程稿曾散落在仓库根目录（如 `ARCHITECTURE.md`、`RULE_EDITOR_PLAN.md`），换个需求就换个文件、换个位置，回头谁也说不清哪份才是最新。
+  - 配套约束：`.gitignore` **不逐个忽略过程稿文件名**——谁再把过程稿丢到根目录，`git status` 会立刻显示为未跟踪文件，等于自动报警。
+  - 注意：正式文档（`README.md`、接口契约、部署说明）仍应入库并放在仓库根/`configs/` 等常规位置，不要混进 `docs/planning/`。
 - **`docs/swagger/`** — `make swagger` 生成的 API 文档产物。
 - **`scripts/`** — `build.sh` / `deploy.sh`。
 - **`logs/`** — 运行期日志输出，内容已 gitignore，只保留 `.gitkeep`。

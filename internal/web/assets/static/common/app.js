@@ -404,6 +404,8 @@
   function leafTitle(key) {
     var chain = findChain(key);
     if (chain && chain.length) return chain[chain.length - 1].title;
+    var linkOnly = window.APP_LINK_ONLY || {};
+    if (linkOnly[key]) return linkOnly[key];
     return key.replace(/\.json$/, '');
   }
 
@@ -422,6 +424,14 @@
       return null;
     }
     return walk(MENU, []);
+  }
+
+  // isKnownKey：侧栏菜单叶子 ∪ 仅链接进入的白名单页（APP_LINK_ONLY）。
+  // 路由守卫只认这两类：其余 hash（例如已删除的页面）直接回首页，
+  // 不去 fetch 一个必然 404 的 schema，也就不会出现「页面加载失败 HTTP 404」。
+  function isKnownKey(key) {
+    if (findChain(key)) return true;
+    return !!(window.APP_LINK_ONLY && window.APP_LINK_ONLY[key]);
   }
   // firstLeafKey：父容器点击时跳到该子树下第一个叶子页
   function firstLeafKey(node) {
@@ -595,8 +605,8 @@
 
   // ---------- 路由主入口：侧栏叶子 / 标签页 / 面包屑 / hash 全部汇到这里 ----------
   function applyKey(key) {
-    // 双保险：被下架的页面直接回首页（navigate 已拦一次，这里防 go() 相等分支直达）
-    if (!findChain(key)) {
+    // 双保险：不认识的页面直接回首页（navigate 已拦一次，这里防 go() 相等分支直达）
+    if (!isKnownKey(key)) {
       activeKey = '';
       location.hash = '#/pages/' + HOME_KEY;
       return;
@@ -617,9 +627,10 @@
   }
   function navigate() {
     var key = pathOf(location.hash);
-    // 页面已从菜单下架（如 rule.json 并入 config.json 后被删除）：hash 还停在旧 key 时
-    // 直接回退首页，避免去 fetch 已删除的 schema → “页面加载失败 HTTP 404”。
-    if (!findChain(key)) {
+    // hash 指向不认识的 key（已下架页面 / 手输错）：直接回退首页，
+    // 避免去 fetch 必然 404 的 schema → “页面加载失败 HTTP 404”。
+    // 认识 = 菜单叶子 ∪ APP_LINK_ONLY（仅链接进入的页面，如 user-add.json）。
+    if (!isKnownKey(key)) {
       if (key !== HOME_KEY) location.replace('#/pages/' + HOME_KEY);
       return;
     }

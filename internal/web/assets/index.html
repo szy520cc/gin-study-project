@@ -7,7 +7,7 @@
 <!-- 本地静态资源：Bootstrap 5.3.3（骨架）、amis 6.13（sdk.css 内含 cxd 主题与 FontAwesome）、公共样式。
      FontAwesome 只保留 amis 自带那一份，不再额外引入独立 all.min.css，避免字体重复下载。 -->
 <link rel="stylesheet" href="/admin/static/bootstrap/bootstrap.min.css">
-<link rel="stylesheet" href="/admin/static/amis/sdk.css">
+<link rel="stylesheet" href="/admin/static/amis/sdk.css?v=20260912a">
 <link rel="stylesheet" href="/admin/static/common/app.css?v=20260906p">
 <link rel="stylesheet" href="/admin/static/common/rule-editor.css?v=20260909ah">
 <link rel="stylesheet" href="/admin/static/common/json-editor.css?v=20260912c">
@@ -87,8 +87,8 @@
 <!-- 自定义 JSON 表单项（依赖 sdk.min.js 暴露的 amisRequire，故紧随其后加载） -->
 <script src="/admin/static/common/json-editor.js?v=20260912h"></script>
 <!-- 菜单配置（独立文件，先于 app.js 加载，app.js 读取 window.APP_MENU） -->
-<script src="/admin/static/common/app_menu.js?v=20260906k"></script>
-<script src="/admin/static/common/app.js?v=20260909a"></script>
+<script src="/admin/static/common/app_menu.js?v=20260912a"></script>
+<script src="/admin/static/common/app.js?v=20260912a"></script>
 <script src="/admin/static/common/rule-editor.js?v=20260912a"></script>
 </body>
 </html>

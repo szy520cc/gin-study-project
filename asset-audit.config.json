@@ -1,0 +1,16 @@
+{
+  "ignore": ["资料/**"],
+  "ignoreRefs": [
+    "signature.png",
+    "qr-code.*"
+  ],
+  "mounts": [
+    { "prefix": "/admin/static/", "dir": "internal/web/assets/static" }
+  ],
+  "patterns": [
+    { "glob": "**/app_menu.js", "regex": "\"key\"\\s*:\\s*\"([^\"]+)\"", "base": "internal/web/assets/pages" },
+    { "glob": "**/app_menu.js", "regex": "\"([A-Za-z0-9._-]+\\.json)\"\\s*:\\s*\"", "base": "internal/web/assets/pages" },
+    { "glob": "**/assets/pages/*.json", "regex": "#/pages/([A-Za-z0-9._-]+\\.json)", "base": "internal/web/assets/pages" },
+    { "glob": "**/assets/pages/*.json", "regex": "\\$frag:([^\"']+)", "base": "internal/web/assets/pages" }
+  ]
+}

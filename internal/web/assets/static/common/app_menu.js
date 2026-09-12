@@ -58,5 +58,29 @@ window.APP_MENU = [
         "icon": "fa-file-code"
       }
     ]
+  },
+  {
+    "title": "系统管理",
+    "icon": "fa-gear",
+    "children": [
+      {
+        "title": "用户管理",
+        "key": "users.json",
+        "icon": "fa-users"
+      },
+      {
+        "title": "系统监控",
+        "key": "monitor.json",
+        "icon": "fa-chart-line"
+      }
+    ]
   }
 ];
+
+/* 仅通过页面内链接进入、不出现在侧栏的页面：路由白名单 + 标签页标题。
+   app.js 的路由守卫只认「APP_MENU 叶子 + 这里登记过的 key」，
+   没登记的 hash（含已删除页面）会被弹回首页，避免去拉必然 404 的 schema。
+   例：用户管理页里的「新增用户」按钮 → #/pages/user-add.json */
+window.APP_LINK_ONLY = {
+  "user-add.json": "新增用户"
+};

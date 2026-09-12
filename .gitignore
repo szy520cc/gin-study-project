@@ -42,13 +42,18 @@ configs/*.local.yaml
 .env
 .env.local
 
+# 过程性文档 —— 统一放 docs/planning/，整个目录不入库
+#
+# 约定：需求规划、架构设计、技术方案、评审意见、复盘、调研笔记等"过程稿"，
+#       一律写进 docs/planning/，不要再散落到仓库根目录或其它地方。
+# 为什么这里不逐个忽略文件名：过程稿一旦又出现在根目录，git status 会立刻
+#       把它显示为未跟踪文件 —— 等于自动报警，比"默默被忽略"更安全。
+docs
+资料
+
 # Temporary files
 tmp/
 temp/
 air-build.log
 .workbuddy/
 internal/web/docs
-docs
-资料
-ARCHITECTURE.md
-RULE_EDITOR_PLAN.md
