@@ -708,18 +708,55 @@
     var alertEl = document.getElementById('loginAlert');
     var alertText = document.getElementById('loginAlertText');
     var btn = document.getElementById('loginBtn');
+    var btnText = document.getElementById('loginBtnText');
+    var spinner = document.getElementById('loginSpinner');
+    var userEl = document.getElementById('username');
+    var pwdEl = document.getElementById('password');
+    var userErr = document.getElementById('usernameError');
+    var pwdErr = document.getElementById('passwordError');
+    var eye = document.getElementById('loginEye');
+    var yearEl = document.getElementById('loginYear');
+
+    var EYE_ON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+    var EYE_OFF = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
+
+    if (yearEl) yearEl.textContent = new Date().getFullYear();
+
     function showAlert(msg, type) {
       alertEl.className = 'alert show ' + (type === 'error' ? 'alert-danger' : 'alert-success');
       alertEl.classList.remove('d-none');
       alertText.textContent = msg;
     }
+    function setFieldError(input, errEl, msg) {
+      if (msg) { input.classList.add('is-invalid'); errEl.textContent = msg; errEl.classList.add('show'); }
+      else { input.classList.remove('is-invalid'); errEl.textContent = ''; errEl.classList.remove('show'); }
+    }
+    function resetBtn() { btn.disabled = false; spinner.classList.add('d-none'); btnText.textContent = '登录'; }
+
+    // 密码可见性切换
+    var showing = false;
+    if (eye) eye.addEventListener('click', function () {
+      showing = !showing;
+      pwdEl.type = showing ? 'text' : 'password';
+      eye.innerHTML = showing ? EYE_OFF : EYE_ON;
+    });
+
+    // 输入时清除对应字段错误
+    [ [userEl, userErr], [pwdEl, pwdErr] ].forEach(function (p) {
+      p[0].addEventListener('input', function () { setFieldError(p[0], p[1], ''); });
+    });
+
     form.addEventListener('submit', function (e) {
       e.preventDefault();
       alertEl.classList.add('d-none');
-      var username = document.getElementById('username').value.trim();
-      var password = document.getElementById('password').value;
-      if (!username || !password) return showAlert('请输入用户名和密码', 'error');
-      btn.disabled = true; btn.textContent = '登录中…';
+      var username = userEl.value.trim();
+      var password = pwdEl.value;
+      var ok = true;
+      if (!username) { setFieldError(userEl, userErr, '请输入用户名'); ok = false; }
+      if (!password) { setFieldError(pwdEl, pwdErr, '请输入密码'); ok = false; }
+      if (!ok) return;
+
+      btn.disabled = true; spinner.classList.remove('d-none'); btnText.textContent = '登录中…';
       fetch('/api/v1/users/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
@@ -733,11 +770,11 @@
           showAlert('登录成功，正在跳转…', 'success');
           setTimeout(function () { location.href = '/admin/'; }, 300);
         } else {
-          btn.disabled = false; btn.textContent = '登 录';
+          resetBtn();
           showAlert(d.message || '用户名或密码错误', 'error');
         }
       }).catch(function () {
-        btn.disabled = false; btn.textContent = '登 录';
+        resetBtn();
         showAlert('网络错误，请稍后重试', 'error');
       });
     });

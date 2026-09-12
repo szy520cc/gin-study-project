@@ -37,19 +37,140 @@
 html, body { height: 100%; }
 body { background: var(--c-body); color: var(--c-text); }
 
-/* ---------- 登录页 ---------- */
-.login-page {
-  background: linear-gradient(135deg, var(--c-accent-strong) 0%, #14418d 100%);
-  min-height: 100vh;
+/* ---------- 登录页（左右分栏：左侧品牌区 | 右侧表单区） ---------- */
+.login-page { min-height: 100vh; background: #eef2f7; }
+.login-wrap { display: flex; min-height: 100vh; }
+
+/* 左侧品牌区 */
+.login-aside {
+  position: relative;
+  flex: 0 0 46%;
+  max-width: 620px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 56px 60px;
+  color: #fff;
+  background: linear-gradient(135deg, #0a1f4d 0%, #1f53b5 55%, #2f6fed 100%);
 }
-.login-card { width: 380px; max-width: 92vw; margin: 0 auto; padding-top: 12vh; }
-.login-panel {
-  background: var(--c-panel); border-radius: 10px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, .25);
-  padding: 34px 32px 26px;
+/* 科技感网格 + 光晕（替代旧式气泡） */
+.login-aside-grid {
+  position: absolute; inset: 0; pointer-events: none;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, .05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, .05) 1px, transparent 1px);
+  background-size: 38px 38px;
+  -webkit-mask-image: radial-gradient(circle at 72% 28%, #000 0%, transparent 78%);
+          mask-image: radial-gradient(circle at 72% 28%, #000 0%, transparent 78%);
 }
-.login-logo { font-size: 22px; font-weight: 700; color: var(--c-accent-strong); }
-.login-title { font-size: 15px; color: var(--c-text-muted); }
+.login-aside-glow {
+  position: absolute; width: 440px; height: 440px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(90, 168, 255, .35), transparent 70%);
+  top: -130px; right: -150px; pointer-events: none;
+}
+.login-aside-top { position: relative; z-index: 1; display: flex; align-items: center; gap: 12px; font-size: 20px; font-weight: 700; }
+.brand-mark {
+  width: 46px; height: 46px; border-radius: 12px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: rgba(255, 255, 255, .16); font-size: 22px; font-weight: 800;
+}
+.login-aside-center { position: relative; z-index: 1; margin: auto 0; }
+.login-aside-title { font-size: 34px; line-height: 1.4; font-weight: 700; margin: 0 0 18px; }
+.login-aside-sub { font-size: 15px; line-height: 1.7; opacity: .85; margin: 0; max-width: 420px; }
+.login-feats { list-style: none; padding: 0; margin: 30px 0 0; display: flex; flex-direction: column; gap: 16px; }
+.login-feats li { display: flex; align-items: center; gap: 12px; font-size: 15px; opacity: .92; }
+.login-feats li svg { flex: 0 0 auto; opacity: .95; }
+.login-aside-bottom { position: relative; z-index: 1; font-size: 12px; opacity: .7; }
+
+/* 右侧表单区 */
+.login-main {
+  flex: 1 1 auto;
+  display: flex; align-items: center; justify-content: center;
+  padding: 40px 24px;
+  background: #f4f7fb;
+}
+/* 悬浮卡片：白底 + 圆角 + 阴影，增加层次 */
+.login-card {
+  width: 440px; max-width: 100%;
+  background: #fff;
+  border: 1px solid #eaeef5;
+  border-radius: 16px;
+  padding: 40px 36px;
+  box-shadow: 0 18px 50px rgba(16, 42, 90, .08);
+}
+.login-head { margin-bottom: 30px; text-align: center; }
+.login-head h1 { font-size: 24px; font-weight: 700; color: #1a2b4a; margin: 0 0 8px; }
+.login-head p { font-size: 14px; color: #6b7a90; margin: 0; }
+
+.login-main .alert { border-radius: 10px; font-size: 13px; padding: 10px 14px; margin-bottom: 20px; }
+
+/* 表单字段：标签在左、输入框在右（左右分布） */
+.login-field { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
+.login-field-label {
+  flex: 0 0 60px; text-align: right; padding-right: 4px;
+  font-size: 14px; font-weight: 500; color: #334155; margin: 0;
+}
+.login-field-control { flex: 1 1 auto; min-width: 0; }
+
+/* 带图标的输入框 */
+.login-input { position: relative; display: flex; align-items: center; }
+.login-input-icon {
+  position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
+  color: #9aa7b8; display: inline-flex; pointer-events: none;
+}
+.login-input .form-control {
+  height: 48px; border-radius: 10px;
+  border: 1px solid #dce3ec;
+  padding: 0 14px 0 42px; font-size: 14px; background: #fff;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.login-input--pwd .form-control { padding-right: 42px; }
+.login-input .form-control:focus {
+  border-color: var(--c-accent);
+  box-shadow: 0 0 0 3px var(--c-focus-ring);
+}
+.login-input .form-control:focus ~ .login-input-icon { color: var(--c-accent); }
+.login-input .form-control::placeholder { color: #9aa7b8; }
+/* 错误状态 */
+.login-input .form-control.is-invalid { border-color: #e5484d; }
+.login-input .form-control.is-invalid:focus { box-shadow: 0 0 0 3px rgba(229, 72, 77, .18); }
+.login-error { display: none; min-height: 0; font-size: 12px; color: #e5484d; margin-top: 6px; }
+.login-error.show { display: block; }
+
+/* 密码可见性切换 */
+.login-eye {
+  position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+  width: 30px; height: 30px; border: 0; background: transparent; color: #9aa7b8;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 6px; cursor: pointer; transition: all .15s ease;
+}
+.login-eye:hover { color: var(--c-accent); background: var(--c-accent-soft); }
+
+.login-submit-row { margin-top: 24px; }
+
+/* 登录按钮 */
+.login-main .btn-primary {
+  height: 48px; border-radius: 10px; font-size: 15px; font-weight: 600;
+  margin-top: 4px;
+  background: linear-gradient(135deg, var(--c-accent) 0%, var(--c-accent-strong) 100%);
+  border: 0;
+  box-shadow: 0 10px 24px rgba(47, 111, 237, .35);
+  transition: all .15s ease;
+}
+.login-main .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 12px 30px rgba(47, 111, 237, .45); }
+.login-main .btn-primary:disabled { opacity: .75; transform: none; cursor: default; }
+.login-submit { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+
+/* 窄屏：隐藏品牌区，表单居中（保持标签-输入框左右分布） */
+@media (max-width: 767.98px) {
+  .login-aside { display: none; }
+  .login-main { padding: 24px 16px; }
+  .login-card { width: 100%; max-width: 360px; padding: 32px 24px; }
+  .login-field { gap: 12px; }
+  .login-field-label { flex: 0 0 52px; font-size: 13px; }
+  .login-options { margin-left: 64px; }
+}
 
 /* ---------- 顶栏 ---------- */
 .app-topbar {

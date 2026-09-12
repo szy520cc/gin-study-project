@@ -6,37 +6,98 @@
 <title>登录 · Gin Study</title>
 <!-- 本地静态资源：Bootstrap 5.3.3 + 公共样式（登录页不加载 amis SDK） -->
 <link rel="stylesheet" href="/admin/static/bootstrap/bootstrap.min.css">
-<link rel="stylesheet" href="/admin/static/common/app.css?v=20260906p">
+<link rel="stylesheet" href="/admin/static/common/app.css?v=20260912i">
 </head>
 <body class="login-page" id="loginPage">
 
-<div class="login-card">
-  <div class="login-panel">
-    <div class="text-center mb-4">
-      <div class="login-logo mb-1">Gin Study</div>
-      <div class="login-title">后台管理系统 · 登录</div>
+<div class="login-wrap">
+
+  <!-- 左侧品牌区 -->
+  <aside class="login-aside">
+    <div class="login-aside-grid"></div>
+    <div class="login-aside-glow"></div>
+
+    <div class="login-aside-top">
+      <span class="brand-mark">G</span>
+      <span class="brand-name">Gin Study</span>
     </div>
 
-    <div class="alert d-none" id="loginAlert" role="alert">
-      <span id="loginAlertText"></span>
+    <div class="login-aside-center">
+      <h2 class="login-aside-title">欢迎使用<br>Gin Study 配置平台</h2>
+      <p class="login-aside-sub">集中管理项目、字段、配置包与配置数据，为业务提供统一、可视化的配置能力。</p>
+      <ul class="login-feats">
+        <li>
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+          项目 · 字段 · 配置包 一站式管理
+        </li>
+        <li>
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+          配置数据可视化维护
+        </li>
+        <li>
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          规则引擎实时下发
+        </li>
+      </ul>
     </div>
 
-    <form id="loginForm" autocomplete="off" novalidate>
-      <div class="mb-3">
-        <label class="form-label" for="username">用户名</label>
-        <input type="text" class="form-control" id="username" placeholder="请输入用户名" autofocus required>
+    <div class="login-aside-bottom">&copy; <span id="loginYear">2026</span> Gin Study · 后台管理系统</div>
+  </aside>
+
+  <!-- 右侧表单区 -->
+  <main class="login-main">
+    <div class="login-card">
+      <div class="login-head">
+        <h1>账号登录</h1>
       </div>
-      <div class="mb-3">
-        <label class="form-label" for="password">密码</label>
-        <input type="password" class="form-control" id="password" placeholder="请输入密码" required>
+
+      <div class="alert d-none" id="loginAlert" role="alert">
+        <span id="loginAlertText"></span>
       </div>
-      <button type="submit" class="btn btn-primary w-100 mb-1" id="loginBtn">登 录</button>
-    </form>
-  </div>
-  <p class="text-center text-white-50 mt-3 mb-0" style="font-size:12px">&copy; 2026 Gin Study · 后台管理系统</p>
+
+      <form id="loginForm" autocomplete="off" novalidate>
+        <div class="login-field">
+          <div class="login-field-control">
+            <div class="login-input">
+              <span class="login-input-icon">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+              </span>
+              <input type="text" class="form-control" id="username" placeholder="请输入用户名" autofocus aria-label="用户名" required>
+            </div>
+            <div class="login-error" id="usernameError"></div>
+          </div>
+        </div>
+
+        <div class="login-field">
+          <div class="login-field-control">
+            <div class="login-input login-input--pwd">
+              <span class="login-input-icon">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              </span>
+              <input type="password" class="form-control" id="password" placeholder="请输入密码" aria-label="密码" required>
+              <button type="button" class="login-eye" id="loginEye" aria-label="显示或隐藏密码">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              </button>
+            </div>
+            <div class="login-error" id="passwordError"></div>
+          </div>
+        </div>
+
+        <div class="login-submit-row">
+          <button type="submit" class="btn btn-primary w-100 login-submit" id="loginBtn">
+            <span class="spinner-border spinner-border-sm d-none" id="loginSpinner" role="status" aria-hidden="true"></span>
+            <span id="loginBtnText">登录</span>
+          </button>
+        </div>
+      </form>
+
+
+    </div>
+  </main>
+
 </div>
 
 <script src="/admin/static/bootstrap/bootstrap.bundle.min.js"></script>
-<script src="/admin/static/common/app.js?v=20260912a"></script>
+<script src="/admin/static/common/app.js?v=20260912i"></script>
 </body>
 </html>
