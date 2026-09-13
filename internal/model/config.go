@@ -1,5 +1,7 @@
 package model
 
+import "fmt"
+
 // Config 配置模型，对应 DDL：
 //
 //	CREATE TABLE `config` (
@@ -72,6 +74,14 @@ func ConfigLatestText(isLatest uint8) string {
 	return "否"
 }
 
+// FormatCutProgress 把切流比例格式化为百分比文案（0.5 → 50%），0 或无显示为 -。
+func FormatCutProgress(cutNum float64) string {
+	if cutNum <= 0 {
+		return "-"
+	}
+	return fmt.Sprintf("%.0f%%", cutNum*100)
+}
+
 // CreateConfigRequest 创建配置请求
 type CreateConfigRequest struct {
 	ProjectID    string  `json:"project_id" binding:"required,max=100"`
@@ -134,7 +144,9 @@ type ConfigResponse struct {
 	// project_id 是字符串主键、config_pack_id 是数字主键，直接展示是一串编号，
 	// 由 service 层批量回填（ToResponse 不查库，保持无副作用）。
 	ProjectName    string `json:"project_name"`
+	ProjectLogo    string `json:"project_logo"`
 	ConfigPackName string `json:"config_pack_name"`
+	ConfigPackLogo string `json:"config_pack_logo"`
 	Name           string `json:"name"`
 	Logo           string `json:"logo"`
 	Type           string `json:"type"`
@@ -155,6 +167,7 @@ type ConfigResponse struct {
 	CutAtText      string  `json:"cut_at_text"`
 	CutVersion     string  `json:"cut_version"`
 	CutBy          string  `json:"cut_by"`
+	CutProgress    string  `json:"cut_progress"`
 	// HasActiveVersion / RuleReady 是「切流 / 发布」的前置条件标记，
 	// 由 service 层批量回填（ToResponse 不查库，保持无副作用）：
 	//   - HasActiveVersion：同 logo 是否存在 status=1 的线上版本（切流的硬前提，
@@ -163,6 +176,20 @@ type ConfigResponse struct {
 	//     （无规则则发布/切流后线上 eval 会报「规则未配置」）。
 	HasActiveVersion bool `json:"has_active_version"`
 	RuleReady        bool `json:"rule_ready"`
+}
+
+// ImportConfigFieldsRequest 根据规则占位符导入字段默认值请求
+//
+// 前端「试运行」区的「导入配置」按钮把当前编辑框里的 Starlark 规则原文（含 ##id**path##）
+// 发到后端，由后端解析占位符、读取字段默认值并组装成可直接运行的 JSON。
+type ImportConfigFieldsRequest struct {
+	ProjectID string `json:"project_id" binding:"required,max=100"`
+	Rule      string `json:"rule" binding:"required"`
+}
+
+// ImportConfigFieldsResponse 导入结果：已格式化的 JSON 字符串
+type ImportConfigFieldsResponse struct {
+	ImportedJSON string `json:"imported_json"`
 }
 
 // ToResponse 转响应
@@ -191,5 +218,6 @@ func (c *Config) ToResponse() *ConfigResponse {
 		CutAtText:     formatUnix(c.CutAt),
 		CutVersion:    c.CutVersion,
 		CutBy:         c.CutBy,
+		CutProgress:   FormatCutProgress(c.CutNum),
 	}
 }

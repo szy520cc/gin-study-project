@@ -120,3 +120,30 @@ func GetConfig(c *gin.Context) {
 	}
 	response.Success(c, resp)
 }
+
+// ImportConfigFields 根据规则占位符导入字段默认值 JSON
+// @Summary 根据规则导入字段默认值 JSON
+// @Tags 配置管理
+// @Accept json
+// @Produce json
+// @Security Bearer
+// @Param request body model.ImportConfigFieldsRequest true "项目ID + 规则原文"
+// @Success 200 {object} response.Response{data=model.ImportConfigFieldsResponse}
+// @Router /api/v1/configs/import-fields [post]
+func ImportConfigFields(c *gin.Context) {
+	if _, ok := middleware.RequireUserID(c); !ok {
+		return
+	}
+
+	var req model.ImportConfigFieldsRequest
+	if !bindJSON(c, &req) {
+		return
+	}
+
+	resp, err := service.ImportConfigFields(c.Request.Context(), &req)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.Success(c, resp)
+}

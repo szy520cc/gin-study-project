@@ -64,6 +64,36 @@
   font-size: 11.5px;
   font-family: var(--re-font);
 }
+/* 撤回/重做按钮：推到最右，与 JSON 编辑器工具栏风格一致 */
+.re-toolbar .re-btn {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--re-text);
+  background: var(--re-panel);
+  border: 1px solid var(--re-border);
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background .12s, border-color .12s, color .12s;
+}
+.re-toolbar .re-btn:hover:not(:disabled) {
+  border-color: var(--re-accent);
+  color: var(--re-accent);
+  background: var(--re-accent-soft);
+}
+.re-toolbar .re-undo { margin-left: auto; }
+.re-redo { margin-left: 0 !important; }
+.re-toolbar .re-btn:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+  background: var(--re-panel);
+  border-color: var(--re-border);
+  color: var(--re-muted-soft);
+}
 
 /* ---------- 行号区 + 编辑区（左右并排，行号不叠加在内容上） ---------- */
 .re-main {

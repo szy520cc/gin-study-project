@@ -2,6 +2,9 @@ package service
 
 import (
 	"context"
+	"encoding/json"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -10,6 +13,8 @@ import (
 	"myproject/pkg/errcode"
 	"myproject/pkg/transaction"
 )
+
+var fieldPlaceholderRE = regexp.MustCompile(`##(\d+)\*\*([^#]+)##`)
 
 // CreateConfig 创建配置。
 // logo+version 组合唯一；status 缺省为待审核(0)，is_latest 缺省为是(1)。
@@ -71,36 +76,60 @@ func GetConfig(ctx context.Context, id uint64) (*model.ConfigResponse, error) {
 	return resp, nil
 }
 
-// UpdateConfig 更新配置（不含身份字段）。
+// UpdateConfig 更新配置（对齐资料逻辑：不可变发布链 + 状态机约束）。
+//
+// 与 UpdateRuleConfig 同构的基本信息保存：
+//   - 身份字段（type 为配置身份一部分）不可改；
+//   - 草稿（status=0）：原地更新 name/remark；
+//   - 生效（status=1）：fork 新版本（status=0、is_latest=1），老版本 is_latest→2 继续生效，
+//     并本次提交的 name/remark 写到新版本；
+//   - 保存后删除 latest 草稿快照缓存（避免 offline 读到旧草稿）。
+//
+// 状态机硬约束（资料要求）：status 只由发布接口改、cut_* 只由切流接口改，
+// 本接口一律拒绝这两个字段的写入，禁止绕过发布链/切流状态机。
 func UpdateConfig(ctx context.Context, id uint64, username string, req *model.UpdateConfigRequest) error {
 	existing, err := getConfig(ctx, id)
 	if err != nil {
 		return err
 	}
 
-	// is_latest 为 0 表示请求没传，不要修改该字段；
-	// 显式传 1 时要保证同 logo 下只有当前版本为最新。
-	upd := &model.Config{
-		Name:        strings.TrimSpace(req.Name),
-		Type:        strings.TrimSpace(req.Type),
-		Status:      req.Status,
-		IsLatest:    req.IsLatest,
-		Remark:      strings.TrimSpace(req.Remark),
-		UpdatedUser: username,
-		UpdatedAt:   time.Now().Unix(),
-		CutNum:      req.CutNum,
-		CutAt:       req.CutAt,
-		CutVersion:  strings.TrimSpace(req.CutVersion),
+	// 身份字段不可改：type 是配置身份的一部分，不允许变更。
+	if req.Type != "" && req.Type != existing.Type {
+		return errcode.ErrConfigStatusInvalid.WithDetails("配置类型不可修改")
+	}
+	// 状态机约束：status 只由 publish 改、cut_* 只由 cutprogress 改。
+	if req.Status != 0 {
+		return errcode.ErrConfigStatusInvalid.WithDetails("配置状态只能由发布接口修改，不可在编辑时直接变更")
+	}
+	if req.CutNum != 0 || req.CutAt != 0 || req.CutVersion != "" {
+		return errcode.ErrConfigStatusInvalid.WithDetails("切流字段只能由切流接口修改，不可在编辑时直接变更")
 	}
 
-	if _, err := data.UpdateConfig(ctx, id, upd); err != nil {
+	name := strings.TrimSpace(req.Name)
+	remark := strings.TrimSpace(req.Remark)
+	now := time.Now().Unix()
+	pack := packOf(ctx, existing.ProjectID)
+
+	err = transaction.Do(ctx, func(ctx context.Context) error {
+		target := existing
+		if existing.Status == model.ConfigStatusActive {
+			// 编辑生效版本 → fork 新版本（不可变发布链），新版本行在下方写入本次提交的 name/remark
+			forked, ferr := forkConfig(ctx, existing, username, now)
+			if ferr != nil {
+				return ferr
+			}
+			target = forked
+		}
+		if uerr := data.UpdateConfigBasic(ctx, target.ID, name, remark, username, now); uerr != nil {
+			return uerr
+		}
+		return nil
+	})
+	if err != nil {
 		return err
 	}
-	if req.IsLatest == model.ConfigLatestYes {
-		if err := data.EnsureOnlyLatest(ctx, existing.Logo, id); err != nil {
-			return err
-		}
-	}
+	// 编辑必删 latest（与 SaveRule / UpdateRuleConfig 一致）
+	_ = data.DelLatest(ctx, pack, existing.Logo)
 	return nil
 }
 
@@ -159,4 +188,87 @@ func getConfig(ctx context.Context, id uint64) (*model.Config, error) {
 		return nil, err
 	}
 	return c, nil
+}
+
+// ImportConfigFields 解析 Starlark 规则里的字段占位符，按字段默认值组装嵌套 JSON。
+//
+// 占位符格式：##字段ID**解析路径##，例如 ##12**risk_engine.account_age##。
+// 解析路径用 '.' 分层，组装时保持原样，叶子节点取字段 default_value 中的 value。
+func ImportConfigFields(ctx context.Context, req *model.ImportConfigFieldsRequest) (*model.ImportConfigFieldsResponse, error) {
+	matches := fieldPlaceholderRE.FindAllStringSubmatch(req.Rule, -1)
+	if len(matches) == 0 {
+		return &model.ImportConfigFieldsResponse{ImportedJSON: "{}"}, nil
+	}
+
+	idSet := make(map[uint64]struct{}, len(matches))
+	for _, m := range matches {
+		if id, err := strconv.ParseUint(m[1], 10, 64); err == nil {
+			idSet[id] = struct{}{}
+		}
+	}
+	if len(idSet) == 0 {
+		return &model.ImportConfigFieldsResponse{ImportedJSON: "{}"}, nil
+	}
+
+	ids := make([]int64, 0, len(idSet))
+	for id := range idSet {
+		ids = append(ids, int64(id))
+	}
+
+	fields, err := data.GetFieldsByIDs(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+
+	fieldMap := make(map[uint64]*model.Field, len(fields))
+	for _, f := range fields {
+		if f.ProjectID != req.ProjectID {
+			continue
+		}
+		fieldMap[f.ID] = f
+	}
+
+	obj := make(map[string]interface{})
+	for _, m := range matches {
+		id, _ := strconv.ParseUint(m[1], 10, 64)
+		path := strings.TrimSpace(m[2])
+		f := fieldMap[id]
+		if f == nil || path == "" {
+			continue
+		}
+
+		val := fieldDefaultValue(f.DefaultValue)
+		parts := strings.Split(path, ".")
+		cur := obj
+		for i := 0; i < len(parts)-1; i++ {
+			part := parts[i]
+			if part == "" {
+				continue
+			}
+			next, ok := cur[part].(map[string]interface{})
+			if !ok || next == nil {
+				next = make(map[string]interface{})
+				cur[part] = next
+			}
+			cur = next
+		}
+		cur[parts[len(parts)-1]] = val
+	}
+
+	b, err := json.MarshalIndent(obj, "", "  ")
+	if err != nil {
+		return nil, errcode.ErrInternal.WithDetails("序列化导入 JSON 失败: %v", err)
+	}
+	return &model.ImportConfigFieldsResponse{ImportedJSON: string(b)}, nil
+}
+
+// fieldDefaultValue 从字段默认值配置 JSON 中提取 value 字段；解析失败时返回空串。
+func fieldDefaultValue(dv string) interface{} {
+	var wrapper struct {
+		Value interface{} `json:"value"`
+	}
+	if err := json.Unmarshal([]byte(dv), &wrapper); err == nil {
+		return wrapper.Value
+	}
+	return ""
 }

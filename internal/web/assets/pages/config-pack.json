@@ -107,7 +107,6 @@
       }
     ],
     "filter": {
-      "title": "筛选",
       "body": [
         { "type": "input-text", "name": "name", "label": "配置包名称（模糊）" },
         {
@@ -132,8 +131,6 @@
       ]
     },
     "headerToolbar": [
-      "filter",
-      "reload",
       {
         "type": "button",
         "label": "新增配置包",
@@ -216,7 +213,9 @@
             ]
           }
         }
-      }
+      },
+      "filter",
+      "reload"
     ],
     "footerToolbar": [
       "switch-per-page",

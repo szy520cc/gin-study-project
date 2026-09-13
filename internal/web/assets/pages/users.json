@@ -20,16 +20,15 @@
       { "name": "created_at", "label": "注册时间", "type": "datetime", "sortable": true, "width": 180 }
     ],
     "filter": {
-      "title": "筛选",
-      "body": [
+        "body": [
         { "type": "input-text", "name": "username", "label": "用户名（模糊）" },
         { "type": "input-text", "name": "email", "label": "邮箱（模糊）" }
       ]
     },
     "headerToolbar": [
+      { "type": "button", "label": "新增用户", "level": "primary", "actionType": "link", "link": "#/pages/user-add.json" },
       "filter",
-      "reload",
-      { "type": "button", "label": "新增用户", "level": "primary", "actionType": "link", "link": "#/pages/user-add.json" }
+      "reload"
     ],
     "footerToolbar": [
       "switch-per-page",

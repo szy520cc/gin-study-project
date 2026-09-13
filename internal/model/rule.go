@@ -88,7 +88,11 @@ type CreateRuleConfigRequest struct {
 type RuleResponse struct {
 	ConfigID        uint64           `json:"config_id"`
 	ProjectID       string           `json:"project_id"`       // 规则所属项目（编辑器按项目过滤字段用）
+	ProjectName     string           `json:"project_name"`     // 所属项目名称
+	ProjectLogo     string           `json:"project_logo"`     // 所属项目标识
 	ConfigPackID    uint64           `json:"config_pack_id"`   // 所属配置包
+	ConfigPackName  string           `json:"config_pack_name"` // 所属配置包名称
+	ConfigPackLogo  string           `json:"config_pack_logo"` // 所属配置包标识
 	Name            string           `json:"name"`             // 配置名称
 	Logo            string           `json:"logo"`             // 配置标识
 	Type            string           `json:"type"`             // 配置类型（rule）

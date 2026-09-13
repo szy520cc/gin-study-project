@@ -20,29 +20,6 @@ func GetConfigByID(ctx context.Context, id uint64) (*model.Config, error) {
 	return &c, nil
 }
 
-// UpdateConfig 更新可编辑列（身份字段 logo/version/project_id/config_pack_id 不改）。
-// is_latest 为 0 表示该字段在本次更新中不修改，避免把旧版本误标为最新。
-func UpdateConfig(ctx context.Context, id uint64, c *model.Config) (int64, error) {
-	updates := map[string]interface{}{
-		"name":         c.Name,
-		"type":         c.Type,
-		"status":       c.Status,
-		"remark":       c.Remark,
-		"updated_user": c.UpdatedUser,
-		"updated_at":   c.UpdatedAt,
-		"cut_num":      c.CutNum,
-		"cut_at":       c.CutAt,
-		"cut_version":  c.CutVersion,
-	}
-	if c.IsLatest != 0 {
-		updates["is_latest"] = c.IsLatest
-	}
-	res := connDb(ctx).Model(&model.Config{}).
-		Where("id = ?", id).
-		Updates(updates)
-	return res.RowsAffected, res.Error
-}
-
 // UpdateConfigBasic 仅更新基本可编辑字段（name/remark），不碰 status/is_latest/type/cut。
 // 用于「整配置一次保存」：fork 新版本后把本次提交的名称/备注写到新版本行，
 // 或草稿原地更新名称/备注 —— 都不该动状态与切流字段。

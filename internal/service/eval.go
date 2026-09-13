@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"math/rand"
+	"strings"
 
 	"myproject/internal/data"
 	"myproject/internal/engine"
@@ -25,6 +26,13 @@ func Eval(ctx context.Context, req *model.EvalRequest) (*model.EvalResponse, err
 	}
 	inputData, err := normalizeData(req.Data)
 	if err != nil {
+		return nil, err
+	}
+
+	// 命名空间校验：规则字段的 parse_path 强制以项目 logo 开头（如 risk_engine.account_age），
+	// 因此入参必须按项目 logo 命名空间（{"risk_engine": {...}}）。未按命名空间传递时，
+	// 按路径提取不到值会静默回退到字段默认值，导致外部调用方拿到「看似正常但其实是默认值算出来」的结果。
+	if err := checkNamespace(req.Pack, snap, inputData); err != nil {
 		return nil, err
 	}
 
@@ -129,4 +137,44 @@ func executeSnapshot(snap *model.ConfigSnapshot, data map[string]any) (interface
 		return nil, "", errcode.ErrRuleExecuteFailed.WithDetails("%s", err.Error())
 	}
 	return value, snap.Rule.ResultType, nil
+}
+
+// checkNamespace 校验入参按「项目 logo」命名空间传递，避免字段静默回退默认值导致误判。
+// 规则字段的 parse_path 强制以项目 logo 开头（如 risk_engine.account_age），因此入参必须形如
+// {"risk_engine": {...}}；否则按路径提取不到值会落到字段默认值，外部调用方难以察觉。
+func checkNamespace(pack string, snap *model.ConfigSnapshot, data map[string]any) error {
+	if _, ok := data[pack]; !ok {
+		return errcode.ErrInvalidParams.WithDetails(
+			"参数未按项目命名空间传递：缺少顶层键 %q，请使用 {\"%s\": {...}} 结构", pack, pack)
+	}
+	var missing []string
+	for _, f := range snap.BindVar {
+		if !pathExists(data, f.ParsePath) {
+			missing = append(missing, f.ParsePath)
+		}
+	}
+	if len(missing) > 0 {
+		return errcode.ErrInvalidParams.WithDetails(
+			"参数未按命名空间传递，以下字段路径在入参中缺失：%s", strings.Join(missing, ", "))
+	}
+	return nil
+}
+
+// pathExists 判断 dotted path 在 data 中是否「存在」（值可为任意类型，包括 0/""），
+// 仅校验结构是否存在，不取具体值——以此区分「未传」与「传了空值」。
+func pathExists(data map[string]any, path string) bool {
+	parts := strings.Split(path, ".")
+	cur := any(data)
+	for _, p := range parts {
+		m, ok := cur.(map[string]any)
+		if !ok {
+			return false
+		}
+		v, ok := m[p]
+		if !ok {
+			return false
+		}
+		cur = v
+	}
+	return true
 }

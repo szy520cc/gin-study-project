@@ -58,8 +58,8 @@
         "type": "tpl",
         "name": "cut_num",
         "label": "切流进度",
-        "width": 90,
-        "tpl": "<span class='label label-info'>${cut_num > 0 ? (cut_num * 100).toFixed(0) + '%' : '-'}</span>"
+        "width": 100,
+        "tpl": "<span class='label ${cut_num == 0 ? 'label-default' : cut_num == 1 ? 'label-success' : 'label-info'}'>${cut_num == 0 ? '暂未切流' : cut_num == 1 ? '切流完成' : cut_progress}</span>"
       },
       {
         "name": "updated_at_text",
@@ -123,29 +123,36 @@
                     "options": "$frag:_frags/result-type-options.json"
                   },
                   {
-                    "type": "static",
-                    "name": "project_id",
-                    "label": "所属项目"
+                    "type": "input-text",
+                    "name": "project_display",
+                    "label": "所属项目",
+                    "disabled": true,
+                    "value": "${project_name}${project_logo ? '（' + project_logo + '）' : ''}"
                   },
                   {
-                    "type": "static",
-                    "name": "config_pack_id",
-                    "label": "配置包ID"
+                    "type": "input-text",
+                    "name": "config_pack_display",
+                    "label": "所属配置包",
+                    "disabled": true,
+                    "value": "${config_pack_name}${config_pack_logo ? '（' + config_pack_logo + '）' : ''}"
                   },
                   {
-                    "type": "static",
+                    "type": "input-text",
                     "name": "logo",
-                    "label": "配置标识"
+                    "label": "配置标识",
+                    "disabled": true
                   },
                   {
-                    "type": "static",
+                    "type": "input-text",
                     "name": "version",
-                    "label": "版本"
+                    "label": "版本",
+                    "disabled": true
                   },
                   {
-                    "type": "static",
+                    "type": "input-text",
                     "name": "status_text",
-                    "label": "状态"
+                    "label": "状态",
+                    "disabled": true
                   },
                   {
                     "type": "textarea",
@@ -190,15 +197,50 @@
                   },
                   {
                     "type": "container",
-                    "className": "rounded-2 mt-4 mb-2",
+                    "className": "rounded-2 mt-4 mb-2 d-flex align-items-center justify-content-between",
                     "style": { "background": "var(--c-accent-soft)", "color": "var(--c-accent-strong)" },
                     "body": [
-                      { "type": "tpl", "className": "px-3 py-2 fw-semibold", "tpl": "试运行" }
+                      { "type": "tpl", "className": "px-3 py-2 fw-semibold", "tpl": "试运行" },
+                      {
+                        "type": "button",
+                        "label": "导入配置",
+                        "level": "default",
+                        "size": "sm",
+                        "className": "me-2",
+                        "onEvent": {
+                          "click": {
+                            "actions": [
+                              {
+                                "actionType": "ajax",
+                                "outputVar": "importResp",
+                                "args": {
+                                  "api": {
+                                    "method": "post",
+                                    "url": "/api/v1/configs/import-fields",
+                                    "data": {
+                                      "project_id": "${project_id}",
+                                      "rule": "${rule}"
+                                    },
+                                    "messages": {
+                                      "success": "已根据字段默认值生成试跑入参"
+                                    }
+                                  }
+                                }
+                              },
+                              {
+                                "actionType": "custom",
+                                "script": "(function(event){var cur=event.data&&event.data.importResp;var resp=cur?(cur.responseData!=null?cur.responseData:cur.data):null;var json=(resp&&resp.imported_json!=null)?resp.imported_json:'';var ok=false;try{if(typeof window.__setJsonEditorValue==='function'){ok=window.__setJsonEditorValue('trialTestData',json)||window.__setJsonEditorValue('test_data',json);}}catch(e){}if(!ok){doAction({actionType:'setValue',componentId:'trialTestData',args:{value:json}});}})(event);"
+                              }
+                            ]
+                          }
+                        }
+                      }
                     ]
                   },
                   {
                     "type": "app-json-editor",
                     "name": "test_data",
+                    "id": "trialTestData",
                     "label": false,
                     "required": true,
                     "validations": {
@@ -447,7 +489,6 @@
       }
     ],
     "filter": {
-      "title": "筛选",
       "body": [
         {
           "type": "hidden",
@@ -508,8 +549,6 @@
       ]
     },
     "headerToolbar": [
-      "filter",
-      "reload",
       {
         "type": "button",
         "label": "新增配置",
@@ -628,6 +667,7 @@
                     "rows": 12,
                     "className": "rule-editor",
                     "hiddenLabel": true,
+                    "value": "def judge():\n\nresult = judge()",
                     "description": "双击 Ctrl 快捷插入字段；Tab 缩进。字段以 ##字段ID**解析路径## 形式保存。版本号由系统自动生成；改动规则后需重新试运行才能保存。",
                     "onEvent": {
                       "change": {
@@ -644,15 +684,50 @@
               },
               {
                 "type": "container",
-                "className": "rounded-2 mt-4 mb-2",
+                "className": "rounded-2 mt-4 mb-2 d-flex align-items-center justify-content-between",
                 "style": { "background": "var(--c-accent-soft)", "color": "var(--c-accent-strong)" },
                 "body": [
-                  { "type": "tpl", "className": "px-3 py-2 fw-semibold", "tpl": "试运行" }
+                  { "type": "tpl", "className": "px-3 py-2 fw-semibold", "tpl": "试运行" },
+                  {
+                        "type": "button",
+                        "label": "导入配置",
+                        "level": "default",
+                        "size": "sm",
+                        "className": "me-2",
+                        "onEvent": {
+                          "click": {
+                            "actions": [
+                              {
+                                "actionType": "ajax",
+                                "outputVar": "importResp",
+                                "args": {
+                                  "api": {
+                                    "method": "post",
+                                    "url": "/api/v1/configs/import-fields",
+                                    "data": {
+                                      "project_id": "${project_id}",
+                                      "rule": "${rule}"
+                                    },
+                                    "messages": {
+                                      "success": "已根据字段默认值生成试跑入参"
+                                    }
+                                  }
+                                }
+                              },
+                              {
+                                "actionType": "custom",
+                                "script": "(function(event){var cur=event.data&&event.data.importResp;var resp=cur?(cur.responseData!=null?cur.responseData:cur.data):null;var json=(resp&&resp.imported_json!=null)?resp.imported_json:'';var ok=false;try{if(typeof window.__setJsonEditorValue==='function'){ok=window.__setJsonEditorValue('trialTestData',json)||window.__setJsonEditorValue('test_data',json);}}catch(e){}if(!ok){doAction({actionType:'setValue',componentId:'trialTestData',args:{value:json}});}})(event);"
+                              }
+                            ]
+                          }
+                        }
+                      }
                 ]
               },
               {
                 "type": "app-json-editor",
                 "name": "test_data",
+                    "id": "trialTestData",
                 "label": false,
                 "required": true,
                 "validations": {
@@ -792,7 +867,9 @@
           },
           "actions": []
         }
-      }
+      },
+      "filter",
+      "reload"
     ],
     "footerToolbar": [
       "switch-per-page",

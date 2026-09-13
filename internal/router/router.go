@@ -204,6 +204,7 @@ func registerConfig(g *gin.RouterGroup, auth gin.HandlerFunc) {
 		configs.POST("/rule/save", controller.SaveRule)
 		configs.GET("/rule/detail", controller.GetRule)
 		configs.POST("/testrun", controller.TestRun)
+		configs.POST("/import-fields", controller.ImportConfigFields)
 		// 发布管理
 		configs.POST("/publish", controller.Publish)
 		configs.POST("/cutprogress", controller.CutProgress)

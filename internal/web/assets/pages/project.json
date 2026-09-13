@@ -88,7 +88,6 @@
       }
     ],
     "filter": {
-      "title": "筛选",
       "body": [
         { "type": "input-text", "name": "name", "label": "项目名称（模糊）" },
         {
@@ -101,8 +100,6 @@
       ]
     },
     "headerToolbar": [
-      "filter",
-      "reload",
       {
         "type": "button",
         "label": "新增项目",
@@ -130,7 +127,9 @@
             ]
           }
         }
-      }
+      },
+      "filter",
+      "reload"
     ],
     "footerToolbar": [
       "switch-per-page",

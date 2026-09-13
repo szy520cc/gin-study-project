@@ -91,8 +91,23 @@ func lookupProjectLogo(m map[uint64]projectInfo, projectID string) string {
 	return m[id].Logo
 }
 
-// configPackNameMap 批量查配置包名称，返回 config_pack.id → name。
-func configPackNameMap(ctx context.Context, ids []uint64) (map[uint64]string, error) {
+// lookupProjectNameFromInfo 从信息表里取项目名称。
+func lookupProjectNameFromInfo(m map[uint64]projectInfo, projectID string) string {
+	id, err := strconv.ParseUint(strings.TrimSpace(projectID), 10, 64)
+	if err != nil {
+		return ""
+	}
+	return m[id].Name
+}
+
+// configPackInfo 配置包回填信息（名称 + 配置包标识）。
+type configPackInfo struct {
+	Name string
+	Logo string
+}
+
+// configPackInfoMap 批量查配置包信息，返回 config_pack.id → {Name, Logo}。
+func configPackInfoMap(ctx context.Context, ids []uint64) (map[uint64]configPackInfo, error) {
 	uniq := make([]uint64, 0, len(ids))
 	seen := make(map[uint64]struct{}, len(ids))
 	for _, id := range ids {
@@ -106,16 +121,16 @@ func configPackNameMap(ctx context.Context, ids []uint64) (map[uint64]string, er
 		uniq = append(uniq, id)
 	}
 	if len(uniq) == 0 {
-		return map[uint64]string{}, nil
+		return map[uint64]configPackInfo{}, nil
 	}
 
 	list, err := data.GetConfigPacksByIDs(ctx, uniq)
 	if err != nil {
 		return nil, err
 	}
-	m := make(map[uint64]string, len(list))
+	m := make(map[uint64]configPackInfo, len(list))
 	for _, c := range list {
-		m[c.ID] = c.Name
+		m[c.ID] = configPackInfo{Name: c.Name, Logo: c.Logo}
 	}
 	return m, nil
 }
@@ -163,7 +178,7 @@ func fillConfigPackProjectNames(ctx context.Context, res []*model.ConfigPackResp
 	return nil
 }
 
-// fillConfigNames 给配置响应回填项目名称 + 配置包名称（列表/详情共用）。
+// fillConfigNames 给配置响应回填项目名称/标识 + 配置包名称/标识（列表/详情共用）。
 //
 // 两次批量查询而不是逐行查：一页 100 条时是 2 次 SQL 而不是 200 次。
 func fillConfigNames(ctx context.Context, res []*model.ConfigResponse) error {
@@ -177,18 +192,44 @@ func fillConfigNames(ctx context.Context, res []*model.ConfigResponse) error {
 		packIDs = append(packIDs, r.ConfigPackID)
 	}
 
-	pm, err := projectNameMap(ctx, ids)
+	pm, err := projectInfoMap(ctx, ids)
 	if err != nil {
 		return err
 	}
-	cm, err := configPackNameMap(ctx, packIDs)
+	cm, err := configPackInfoMap(ctx, packIDs)
 	if err != nil {
 		return err
 	}
 
 	for _, r := range res {
-		r.ProjectName = lookupProjectName(pm, r.ProjectID)
-		r.ConfigPackName = cm[r.ConfigPackID]
+		r.ProjectName = lookupProjectNameFromInfo(pm, r.ProjectID)
+		r.ProjectLogo = lookupProjectLogo(pm, r.ProjectID)
+		if info, ok := cm[r.ConfigPackID]; ok {
+			r.ConfigPackName = info.Name
+			r.ConfigPackLogo = info.Logo
+		}
+	}
+	return nil
+}
+
+// fillRuleConfigNames 给规则详情响应回填项目/配置包名称与标识。
+func fillRuleConfigNames(ctx context.Context, r *model.RuleResponse) error {
+	if r == nil {
+		return nil
+	}
+	pm, err := projectInfoMap(ctx, []string{r.ProjectID})
+	if err != nil {
+		return err
+	}
+	cm, err := configPackInfoMap(ctx, []uint64{r.ConfigPackID})
+	if err != nil {
+		return err
+	}
+	r.ProjectName = lookupProjectNameFromInfo(pm, r.ProjectID)
+	r.ProjectLogo = lookupProjectLogo(pm, r.ProjectID)
+	if info, ok := cm[r.ConfigPackID]; ok {
+		r.ConfigPackName = info.Name
+		r.ConfigPackLogo = info.Logo
 	}
 	return nil
 }
@@ -258,6 +299,7 @@ func fillConfigCutInfo(ctx context.Context, res []*model.ConfigResponse) error {
 		r.CutAt = active.CutAt
 		r.CutAtText = model.FormatUnix(active.CutAt)
 		r.CutBy = active.CutBy
+		r.CutProgress = model.FormatCutProgress(active.CutNum)
 	}
 	return nil
 }

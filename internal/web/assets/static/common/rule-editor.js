@@ -27,6 +27,59 @@
       ? String(window.RuleEditorContext.projectId) : '';
   }
 
+  /* 字段缓存：按 projectId 缓存字段列表，用于反序列化时把字段 ID 映射成名称显示。
+     编辑页 initApi 已把 project_id 写到 RuleEditorContext.projectId，所以能命中。 */
+  if (!window.RuleEditorContext) window.RuleEditorContext = {};
+  if (!window.RuleEditorContext.fields) window.RuleEditorContext.fields = {};
+  function cachedField(id) {
+    var ctx = window.RuleEditorContext;
+    return (ctx && ctx.fields && ctx.fields[id]) || null;
+  }
+  function cachedFieldName(id, fallback) {
+    var f = cachedField(id);
+    return (f && f.name) ? f.name : fallback;
+  }
+  function ensureFields(cb) {
+    var pid = projectId();
+    var ctx = window.RuleEditorContext;
+    if (!pid) { if (cb) cb('未选择项目'); return; }
+    if (ctx._fieldProjectId && ctx._fieldProjectId !== pid) { ctx.fields = {}; ctx.fieldList = []; }
+    ctx._fieldProjectId = pid;
+    if (ctx.fields && Object.keys(ctx.fields).length > 0) { if (cb) cb(''); return; }
+    if (ctx._fieldLoading) { ctx._fieldLoadingCbs = ctx._fieldLoadingCbs || []; ctx._fieldLoadingCbs.push(cb); return; }
+    ctx._fieldLoading = true;
+    fetchAllFields(function (list, err) {
+      ctx._fieldLoading = false;
+      if (!err) {
+        ctx.fields = {};
+        ctx.fieldList = list || [];
+        for (var i = 0; i < list.length; i++) { var f = list[i]; if (f && f.id) ctx.fields[f.id] = f; }
+      }
+      if (cb) cb(err || '');
+      var cbs = ctx._fieldLoadingCbs || [];
+      ctx._fieldLoadingCbs = [];
+      for (var j = 0; j < cbs.length; j++) if (cbs[j]) cbs[j](err || '');
+    });
+  }
+  function enrichFieldSpans(root) {
+    var ctx = window.RuleEditorContext;
+    if (!ctx || !ctx.fields) return;
+    var spans = root.querySelectorAll('.re-field');
+    for (var i = 0; i < spans.length; i++) {
+      var span = spans[i];
+      var id = span.getAttribute('data-id');
+      var f = ctx.fields[id];
+      if (f && f.name) {
+        var path = span.getAttribute('data-path') || f.parse_path || '';
+        if (f.name !== path && span.textContent !== f.name) {
+          span.setAttribute('data-name', f.name);
+          span.textContent = f.name;
+          span.setAttribute('title', '字段 #' + id + ' · ' + f.name);
+        }
+      }
+    }
+  }
+
   /* ---------------- 序列化 / 反序列化 ---------------- */
   function serialize(root) {
     var out = '';
@@ -62,6 +115,8 @@
     return frag;
   }
   function makeField(id, path, name) {
+    if (!name) name = cachedFieldName(id, '');
+    if (!name) name = path;
     var span = document.createElement('span');
     span.className = 're-field';
     span.setAttribute('contenteditable', 'false');
@@ -177,7 +232,9 @@
     wrap.className = 're-wrap';
     var toolbar = document.createElement('div');
     toolbar.className = 're-toolbar';
-    toolbar.innerHTML = '双击 <b>Ctrl</b> 获取字段列表，面板内可搜索过滤；Tab 缩进';
+    toolbar.innerHTML = '<span class="re-hint">双击 <b>Ctrl</b> 获取字段 · 搜索过滤 · Tab 缩进 · Ctrl+Z 撤回</span>' +
+      '<button type="button" class="re-btn re-undo" title="撤回 (Ctrl+Z)">↶ 撤回</button>' +
+      '<button type="button" class="re-btn re-redo" title="重做 (Ctrl+Shift+Z / Ctrl+Y)">↷ 重做</button>';
     var ed = document.createElement('div');
     ed.className = 're-editor';
     /* 必须用 "true" 而不是 "plaintext-only"：
@@ -231,10 +288,13 @@
       ta: ta, ed: ed, gutterEl: gutterEl, gutterInner: gutterInner, dd: dd, refs: refs,
       items: [], allItems: [], active: 0,
       insertOffset: -1,
-      composing: false, debTimer: null, syncTimer: null, last: null
+      composing: false, debTimer: null, syncTimer: null, last: null,
+      undo: [], redo: [], histAt: 0, histCaret: -1, undoBtn: null, redoBtn: null
     };
 
     ed.appendChild(deserialize(ta.value || ''));
+    enrichFieldSpans(ed);
+    ensureFields(function () { enrichFieldSpans(ed); });
 
     var lastCtrlDown = 0;   // 双击 Ctrl 判定（记录上次按下时刻 ms）
     function commit() {
@@ -251,9 +311,64 @@
       FIELD_RE.lastIndex = 0;
       while ((m = FIELD_RE.exec(v)) !== null) {
         n++;
-        out += '<span class="re-ref" title="字段 #' + esc(m[1]) + '">#' + esc(m[1]) + ' ' + esc(m[2]) + '</span>';
+        out += '<span class="re-ref" title="字段 #' + esc(m[1]) + ' · ' + esc(m[2]) + '">#' + esc(m[1]) + ' ' + esc(m[2]) + '</span>';
       }
       refs.innerHTML = n ? '已引用 ' + n + ' 个字段：' + out : '尚未引用字段（按 Ctrl 选择）';
+    }
+
+    /* -------- 撤回 / 重做 --------
+       编辑区是 contenteditable：浏览器原生的 undo 栈在我们「整段重写 DOM」
+       （如反序列化回显、插入字段胶囊）时会被冲掉，只能自建历史。
+       snapshot 存「可序列化文本 + 光标偏移(DOM 字符单位)」，回放时反序列化
+       重建 DOM 再把光标放回去，与 JSON 编辑器的做法一致。 */
+    function snapshot() {
+      return { text: serialize(ed), caret: caretOffsetOf(ed) };
+    }
+    function pushHistory(soft) {
+      var now = Date.now();
+      var caret = caretOffsetOf(ed);
+      /* 连续输入（打字/删除）：700ms 内且光标接得上就合并成一步，
+         否则敲一个字就占一格撤回，很难用。 */
+      if (soft && (now - st.histAt < 700) && caret === st.histCaret) {
+        st.histAt = now;
+        return;
+      }
+      st.undo.push(snapshot());
+      if (st.undo.length > 300) st.undo.shift();
+      st.redo.length = 0;
+      st.histAt = now;
+      st.histCaret = caret;
+      updateHistButtons();
+    }
+    function applySnapshot(s) {
+      ed.innerHTML = '';
+      ed.appendChild(deserialize(s.text || ''));
+      var max = totalLen(ed);
+      var caret = (s.caret == null) ? 0 : Math.min(s.caret, max);
+      try {
+        var r = rangeForOffsets(ed, caret, caret);
+        var sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(r);
+      } catch (e) {}
+      st.histAt = 0;        // 撤回/重做之后不要并进后续输入
+      st.histCaret = -1;
+      commit();
+      updateHistButtons();
+    }
+    function doUndo() {
+      if (!st.undo.length) return;
+      st.redo.push(snapshot());
+      applySnapshot(st.undo.pop());
+    }
+    function doRedo() {
+      if (!st.redo.length) return;
+      st.undo.push(snapshot());
+      applySnapshot(st.redo.pop());
+    }
+    function updateHistButtons() {
+      if (st.undoBtn) st.undoBtn.disabled = !st.undo.length;
+      if (st.redoBtn) st.redoBtn.disabled = !st.redo.length;
     }
 
     /* -------- 行号（contenteditable 版：按真实视觉行定位，不叠加、不漂移） -------- */
@@ -399,15 +514,17 @@
       dd.style.top = top + 'px';
     }
 
-    /* 打开面板：唯一会请求字段接口的地方（有且仅有 Ctrl 键触发） */
+    /* 打开面板：通过 ensureFields 统一加载并缓存字段（保持与反序列化名称回显同一份缓存） */
     function openDD() {
       ddPosition();
       dd.hidden = false;
       if (searchEl) searchEl.value = '';
       ddTip('加载字段中…');
-      fetchAllFields(function (list, err) {
+      ensureFields(function (err) {
         if (dd.hidden) return;               // 期间已被关闭则不渲染
         if (err) { ddTip(err, 1); return; }
+        var ctx = window.RuleEditorContext;
+        var list = (ctx && ctx.fieldList) ? ctx.fieldList : [];
         st.allItems = list;
         renderList(list);
         if (searchEl) searchEl.focus();      // 聚焦搜索框，用户直接输入过滤
@@ -436,6 +553,7 @@
 
     /* -------- 插入字段：插到按下 Ctrl 时的光标位置，紧贴字符时自动补空格分隔 -------- */
     function insertField(f) {
+      pushHistory(false);
       var offset = (st.insertOffset != null && st.insertOffset >= 0) ? st.insertOffset : caretOffsetOf(ed);
       var nbr = getNeighbor(ed, offset);
       var needLeft  = (nbr.left  === 'char' || nbr.left  === 'field');
@@ -470,6 +588,7 @@
       ed.focus();
     }
     function insertText(str) {
+      pushHistory(false);
       var sel = window.getSelection();
       if (!sel || !sel.rangeCount) return;
       var range = sel.getRangeAt(0);
@@ -528,6 +647,13 @@
         }
         return;
       }
+      /* Ctrl+Z 撤回 / Ctrl+Shift+Z、Ctrl+Y 重做（与 JSON 编辑器一致）。
+         放 Control 单键判断之后：组合键的 e.key 是 'z' 不是 'Control'，不会被上面的分支吃掉。 */
+      if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+        var hk = String(e.key || '').toLowerCase();
+        if (hk === 'z') { e.preventDefault(); if (e.shiftKey) doRedo(); else doUndo(); return; }
+        if (hk === 'y') { e.preventDefault(); doRedo(); return; }
+      }
       if (!dd.hidden) {
         if (e.key === 'ArrowDown') { e.preventDefault(); st.active = (st.active + 1) % (st.items.length || 1); markActive(); return; }
         if (e.key === 'ArrowUp') { e.preventDefault(); st.active = (st.active - 1 + (st.items.length || 1)) % (st.items.length || 1); markActive(); return; }
@@ -536,7 +662,7 @@
       }
       if (e.key === 'Tab') {
         e.preventDefault();
-        insertText('    ');
+        insertText('  ');
         return;
       }
       if (e.key === 'Enter') {
@@ -576,6 +702,19 @@
 
     ed.addEventListener('input', onInput);
     ed.addEventListener('keydown', onKeyDown);
+    /* 原生 undo 栈会被「整段重写 DOM」冲掉，用 beforeinput 在浏览器改 DOM 前
+       快照当前状态（与 JSON 编辑器一致）。insertText/insertField 这类程序化改动
+       不触发 beforeinput，故在那些函数里显式 pushHistory。 */
+    ed.addEventListener('beforeinput', function (e) {
+      if (ed.getAttribute('contenteditable') === 'false') return;
+      pushHistory(/^(insert|delete)/i.test(String(e.inputType || '')));
+    });
+    /* 工具栏撤回/重做按钮 */
+    st.undoBtn = toolbar.querySelector('.re-undo');
+    st.redoBtn = toolbar.querySelector('.re-redo');
+    if (st.undoBtn) st.undoBtn.addEventListener('click', function () { doUndo(); });
+    if (st.redoBtn) st.redoBtn.addEventListener('click', function () { doRedo(); });
+    updateHistButtons();
     ed.addEventListener('scroll', function () { gutterSyncScroll(); guidesSyncScroll(); });
     ed.addEventListener('compositionstart', function () { st.composing = true; });
     ed.addEventListener('compositionend', function () { st.composing = false; commit(); });
@@ -649,6 +788,13 @@
         st.last = ta.value;
         updateRefs(ta.value || '');
         scheduleGutter();
+        ensureFields(function () { enrichFieldSpans(ed); });
+        /* 外部换了一篇内容（回显 / 重置 / 切换配置），旧历史已无意义 */
+        st.undo.length = 0;
+        st.redo.length = 0;
+        st.histAt = 0;
+        st.histCaret = -1;
+        updateHistButtons();
       }
     }, 300);
 

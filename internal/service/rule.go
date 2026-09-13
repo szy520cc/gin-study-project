@@ -338,49 +338,57 @@ func GetRule(ctx context.Context, configID uint64) (*model.RuleResponse, error) 
 	if err != nil {
 		return nil, err
 	}
+
+	var resp *model.RuleResponse
 	r, err := data.GetRuleByConfigID(ctx, configID)
 	if err != nil {
-		if data.IsNotFound(err) {
-			return &model.RuleResponse{
-				ConfigID:     configID,
-				ProjectID:    c.ProjectID,
-				ConfigPackID: c.ConfigPackID,
-				Name:         c.Name,
-				Logo:         c.Logo,
-				Type:         c.Type,
-				StatusText:   model.ConfigStatusText(c.Status),
-				Remark:       c.Remark,
-				RuleSource:   "",
-				ResultType:   model.ResultTypePassRejectReview,
-				Engine:       model.EngineStarlark,
-				Version:      c.Version,
-			}, nil
+		if !data.IsNotFound(err) {
+			return nil, err
 		}
+		resp = &model.RuleResponse{
+			ConfigID:     configID,
+			ProjectID:    c.ProjectID,
+			ConfigPackID: c.ConfigPackID,
+			Name:         c.Name,
+			Logo:         c.Logo,
+			Type:         c.Type,
+			StatusText:   model.ConfigStatusText(c.Status),
+			Remark:       c.Remark,
+			RuleSource:   "",
+			ResultType:   model.ResultTypePassRejectReview,
+			Engine:       model.EngineStarlark,
+			Version:      c.Version,
+		}
+	} else {
+		fields, _ := data.GetFieldsByIDs(ctx, engine.SplitInt64Slice(r.BindVar))
+		fieldResp := make([]*model.FieldResponse, 0, len(fields))
+		for _, f := range fields {
+			fieldResp = append(fieldResp, f.ToResponse())
+		}
+		resp = &model.RuleResponse{
+			ConfigID:        configID,
+			ProjectID:       c.ProjectID,
+			ConfigPackID:    c.ConfigPackID,
+			Name:            c.Name,
+			Logo:            c.Logo,
+			Type:            c.Type,
+			StatusText:      model.ConfigStatusText(c.Status),
+			Remark:          c.Remark,
+			Rule:            r.Rule,
+			RuleSource:      extractRuleSource(r.ConditionConfig),
+			ConditionConfig: r.ConditionConfig,
+			BindVar:         r.BindVar,
+			BindVarInfo:     fieldResp,
+			ResultType:      r.ResultType,
+			Engine:          r.Engine,
+			Version:         c.Version,
+		}
+	}
+
+	if err := fillRuleConfigNames(ctx, resp); err != nil {
 		return nil, err
 	}
-	fields, _ := data.GetFieldsByIDs(ctx, engine.SplitInt64Slice(r.BindVar))
-	fieldResp := make([]*model.FieldResponse, 0, len(fields))
-	for _, f := range fields {
-		fieldResp = append(fieldResp, f.ToResponse())
-	}
-	return &model.RuleResponse{
-		ConfigID:        configID,
-		ProjectID:       c.ProjectID,
-		ConfigPackID:    c.ConfigPackID,
-		Name:            c.Name,
-		Logo:            c.Logo,
-		Type:            c.Type,
-		StatusText:      model.ConfigStatusText(c.Status),
-		Remark:          c.Remark,
-		Rule:            r.Rule,
-		RuleSource:      extractRuleSource(r.ConditionConfig),
-		ConditionConfig: r.ConditionConfig,
-		BindVar:         r.BindVar,
-		BindVarInfo:     fieldResp,
-		ResultType:      r.ResultType,
-		Engine:          r.Engine,
-		Version:         c.Version,
-	}, nil
+	return resp, nil
 }
 
 // normalizeData 把请求的 data 规范化为 map[string]any。

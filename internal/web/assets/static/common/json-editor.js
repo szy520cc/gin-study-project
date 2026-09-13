@@ -33,6 +33,19 @@
   var ReactRef = null;
   var INDENT = '  '; // 一级缩进 2 空格（与 JSON 常规风格一致）
 
+  /* 全局注册表：让外部（如「导入配置」按钮的 custom 动作）能直接把文本写进某个编辑器，
+     而不依赖 amis setValue 对自定义表单项的派发行为。key 取组件的 id（优先）或 name。
+     amis 弹窗是懒渲染的，同一时刻只有一个同名/同 id 的编辑器挂在 DOM 上，
+     因此多个编辑器共用一个 key 也不会冲突——导入按钮只会影响当前打开的那个。 */
+  if (!window.__jsonEditors) window.__jsonEditors = {};
+  function registerEditor(key, api) { if (key) window.__jsonEditors[key] = api; }
+  function unregisterEditor(key) { if (key && window.__jsonEditors[key]) delete window.__jsonEditors[key]; }
+  window.__setJsonEditorValue = function (key, text) {
+    var e = window.__jsonEditors && window.__jsonEditors[key];
+    if (e && typeof e.setText === 'function') { e.setText(text == null ? '' : String(text)); return true; }
+    return false;
+  };
+
   /* =========================================================
      工具：JSON 解析 / 美化 / 压缩
      ========================================================= */
@@ -367,6 +380,18 @@
 
     /* 首帧补一次着色（此时两个 ref 都已挂好） */
     React.useEffect(function () { renderHl(); }, []);
+
+    /* 把当前编辑器登记到全局注册表，供「导入配置」按钮的 custom 动作直接写入。
+       applyText 走 'none' 不入历史栈、不抢焦点，并通过 emit→onChange 把值同步回表单数据域，
+       保证「试运行」「保存」读到的 ${test_data} 与编辑器显示一致。 */
+    React.useEffect(function () {
+      var keys = [];
+      if (props.id) keys.push(props.id);
+      if (props.name) keys.push(props.name);
+      var api = { setText: function (t) { applyText(t == null ? '' : String(t), null, 'none'); } };
+      keys.forEach(function (k) { registerEditor(k, api); });
+      return function () { keys.forEach(unregisterEditor); };
+    }, []);
 
     /* 挂载：把 div 设为可编辑并写入首屏值。
        注意必须用 "true"，不能用 "plaintext-only"：
