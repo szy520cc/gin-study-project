@@ -67,10 +67,13 @@ func MarkConfigNotLatest(ctx context.Context, id uint64) error {
 		Update("is_latest", model.ConfigLatestNo).Error
 }
 
-// ListConfigs 分页查询配置。configPackID/name/type/status/isLatest 均为可选条件
-func ListConfigs(ctx context.Context, configPackID uint64, name, typ string, status, isLatest *uint8, page, pageSize int) ([]*model.Config, int64, error) {
+// ListConfigs 分页查询配置。projectID/configPackID/name/type/status/isLatest 均为可选条件
+func ListConfigs(ctx context.Context, projectID string, configPackID uint64, name, typ string, status, isLatest *uint8, page, pageSize int) ([]*model.Config, int64, error) {
 	query := func() *gorm.DB {
 		q := connDb(ctx).Model(&model.Config{})
+		if projectID != "" {
+			q = q.Where("project_id = ?", projectID)
+		}
 		if configPackID != 0 {
 			q = q.Where("config_pack_id = ?", configPackID)
 		}
@@ -121,6 +124,27 @@ func GetActiveConfigByLogo(ctx context.Context, logo string) (*model.Config, err
 		return nil, err
 	}
 	return &c, nil
+}
+
+// ActiveLogosAmong 批量查询「存在线上版本（status=1）」的 logo 集合。
+//
+// 列表页据此回填 has_active_version：切流的硬前提是新旧版本共存——
+// 灰度状态要挂在线上版本行上，没有线上版本就无处可挂。
+func ActiveLogosAmong(ctx context.Context, logos []string) (map[string]struct{}, error) {
+	out := make(map[string]struct{}, len(logos))
+	if len(logos) == 0 {
+		return out, nil
+	}
+	var found []string
+	if err := connDb(ctx).Model(&model.Config{}).
+		Where("logo IN ? AND status = ?", logos, model.ConfigStatusActive).
+		Distinct().Pluck("logo", &found).Error; err != nil {
+		return nil, err
+	}
+	for _, l := range found {
+		out[l] = struct{}{}
+	}
+	return out, nil
 }
 
 // GetConfigByLogoAndVersion 按 logo+version 查配置（eval 回源锁定指定版本用）。

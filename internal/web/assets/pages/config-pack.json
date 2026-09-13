@@ -14,7 +14,7 @@
     "perPageField": "page_size",
     "columns": [
       { "name": "id", "label": "ID", "width": 70 },
-      { "name": "project_id", "label": "所属项目", "width": 90 },
+      { "name": "project_name", "label": "项目名称", "width": 140 },
       { "name": "name", "label": "配置包名称" },
       { "name": "logo", "label": "配置包标识", "width": 150 },
       { "name": "status_text", "label": "状态", "width": 90 },
@@ -110,6 +110,18 @@
           "label": "状态",
           "clearable": true,
           "options": "$frag:_frags/status-options.json"
+        },
+        {
+          "type": "select",
+          "name": "project_id",
+          "label": "所属项目",
+          "clearable": true,
+          "placeholder": "全部项目",
+          "source": {
+            "method": "get",
+            "url": "/api/v1/projects/list?page=1&page_size=100",
+            "adaptor": "return {options:(payload.data.items||[]).map(function(it){return {label:it.name, value:String(it.id)}})};"
+          }
         }
       ]
     },

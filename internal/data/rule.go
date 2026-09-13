@@ -22,6 +22,27 @@ func GetRuleByConfigID(ctx context.Context, configID uint64) (*model.Rule, error
 	return &r, nil
 }
 
+// RuleConfigIDSet 批量查询「已保存规则」的 config_id 集合。
+//
+// 列表页据此回填 rule_ready：只有规则内容就绪（且保存时已通过校验）
+// 才允许切流/发布，否则上线后线上 eval 会报「规则未配置」。
+func RuleConfigIDSet(ctx context.Context, configIDs []uint64) (map[uint64]struct{}, error) {
+	out := make(map[uint64]struct{}, len(configIDs))
+	if len(configIDs) == 0 {
+		return out, nil
+	}
+	var found []uint64
+	if err := connDb(ctx).Model(&model.Rule{}).
+		Where("config_id IN ?", configIDs).
+		Distinct().Pluck("config_id", &found).Error; err != nil {
+		return nil, err
+	}
+	for _, id := range found {
+		out[id] = struct{}{}
+	}
+	return out, nil
+}
+
 // UpdateRule 更新规则内容（编译后脚本 + 原文 + bind_var + result_type + 冗余字段）。
 func UpdateRule(ctx context.Context, ruleID uint64, r *model.Rule) (int64, error) {
 	res := connDb(ctx).Model(&model.Rule{}).

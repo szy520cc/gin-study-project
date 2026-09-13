@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -37,6 +38,7 @@ func TestCompileRule(t *testing.T) {
 
 // TestValidateRule 验证占位符格式校验。
 func TestValidateRule(t *testing.T) {
+	// 一层：占位符格式 + 非空
 	if err := ValidateRule(""); err == nil {
 		t.Error("空规则应报错")
 	}
@@ -45,6 +47,148 @@ func TestValidateRule(t *testing.T) {
 	}
 	if err := ValidateRule("result = 1 if ##209**a.b## > 0 else 0"); err != nil {
 		t.Errorf("合法占位符不应报错: %v", err)
+	}
+
+	// 二层：Starlark 语法/编译校验（不执行），必须与 Run 的执行态语义一致
+	valid := []string{
+		"result = 1",
+		`result = json.dumps({"a": context["a$209"]})`,
+		"def f():\n    if ##209**material.vertical_type## in (0, 1, 5):\n        return 1\n    return 0\nresult = f()",
+	}
+	for _, s := range valid {
+		if err := ValidateRule(s); err != nil {
+			t.Errorf("合法规则不应报错: %q -> %v", s, err)
+		}
+	}
+
+	invalid := []string{
+		"if context[\"a$209\"] == 1\n    result = 1", // 缺冒号
+		"result = (1 + 2",                    // 括号不配对
+		"result = \"abc",                     // 字符串未闭合
+		"result = undefined_name + 1",        // 未定义名字
+		"if ##209**a.b## > 0:\n    return 1", // 函数外的 return（Run 同样拒绝）
+	}
+	for _, s := range invalid {
+		if err := ValidateRule(s); err == nil {
+			t.Errorf("非法规则应报错: %q", s)
+		}
+	}
+}
+
+// TestValidateRuleErrorMessage 校验报错文案：必须定位到「行」且说人话。
+//
+// 刻意只报行号不报列号 —— 校验跑的是编译后的脚本，占位符展开会拉长行、
+// 列号随之右移，报列号反而会把人带偏。
+func TestValidateRuleErrorMessage(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+		want []string // 期望全部出现在错误信息里
+	}{
+		{
+			name: "缺冒号定位到行",
+			src:  "result = 0\nif ##209**material.vertical_type## in (0, 1, 5)\n    result = 1",
+			want: []string{"第 3 行", "应补上 ':'"},
+		},
+		{
+			name: "字符串未闭合",
+			src:  "result = \"abc",
+			want: []string{"第 1 行", "字符串没有闭合"},
+		},
+		{
+			name: "未定义名称",
+			src:  "result = undefined_thing",
+			want: []string{"第 1 行", "未定义的名称", "undefined_thing"},
+		},
+		{
+			name: "函数外 return",
+			src:  "if ##209**a.b## > 0:\n    return 1",
+			want: []string{"第 2 行", "只能写在函数内部"},
+		},
+	}
+	for _, c := range cases {
+		err := ValidateRule(c.src)
+		if err == nil {
+			t.Errorf("%s: 期望报错，实际通过", c.name)
+			continue
+		}
+		msg := err.Error()
+		for _, w := range c.want {
+			if !strings.Contains(msg, w) {
+				t.Errorf("%s: 报错缺少 %q\n实际: %s", c.name, w, msg)
+			}
+		}
+		t.Logf("%s -> %s", c.name, msg)
+	}
+}
+
+// TestValidateRuleValueTypeConsistency 校验「结果类型唯一」这条强类型约定。
+//
+// 结果会按 result_type 转换：bool 原样返回、其余按整数返回。同一函数若混用
+// return True / return 1，同一份规则在不同分支就会产出两种类型，调用方无法
+// 按固定契约消费，因此必须在保存前拦下。
+func TestValidateRuleValueTypeConsistency(t *testing.T) {
+	valid := []string{
+		// 清一色 int
+		"def judge():\n  if ##209**material.vertical_type## in (0,1,5):\n    return 1\n  return 0\nresult = judge()",
+		// 清一色 bool
+		"def judge():\n  if ##209**material.vertical_type## in (0,1,5):\n    return True\n  return False\nresult = judge()",
+		// 清一色 list
+		"def judge():\n  if ##209**a.b##:\n    return [1, 2]\n  return []\nresult = judge()",
+		// 只有一条 return，谈不上混用
+		"def judge():\n  return 1\nresult = judge()",
+		// 不同函数各自类型不同是允许的（辅助函数归辅助函数）
+		"def helper():\n  return \"hit\"\ndef judge():\n  if helper() == \"hit\":\n    return 1\n  return 0\nresult = judge()",
+		// 三元表达式两支同类型
+		"def judge():\n  return 1 if ##209**a.b## else 0\nresult = judge()",
+		// 顶层 result 只赋值一次
+		"result = 1",
+	}
+	for _, s := range valid {
+		if err := ValidateRule(s); err != nil {
+			t.Errorf("合法规则不应报错: %q -> %v", s, err)
+		}
+	}
+
+	cases := []struct {
+		name string
+		src  string
+		want []string
+	}{
+		{
+			name: "bool 与 int 混用",
+			src:  "def manual():\n  if ##209**material.vertical_type## >= 2:\n    return True\n  return 1\nresult = manual()",
+			want: []string{"第 4 行", "第 3 行", "bool", "int", "结果类型必须唯一"},
+		},
+		{
+			name: "string 与 int 混用",
+			src:  "def judge():\n  if ##209**a.b##:\n    return \"yes\"\n  return 0\nresult = judge()",
+			want: []string{"第 4 行", "string", "int"},
+		},
+		{
+			name: "裸 return 与 return 1 混用",
+			src:  "def judge():\n  if ##209**a.b##:\n    return 1\n  return\nresult = judge()",
+			want: []string{"none", "int"},
+		},
+		{
+			name: "顶层 result 赋成两种类型",
+			src:  "if ##209**a.b##:\n  result = 1\nelse:\n  result = \"a\"",
+			want: []string{"result", "string", "int"},
+		},
+	}
+	for _, c := range cases {
+		err := ValidateRule(c.src)
+		if err == nil {
+			t.Errorf("%s: 期望报错，实际通过", c.name)
+			continue
+		}
+		msg := err.Error()
+		for _, w := range c.want {
+			if !strings.Contains(msg, w) {
+				t.Errorf("%s: 报错缺少 %q\n实际: %s", c.name, w, msg)
+			}
+		}
+		t.Logf("%s -> %s", c.name, msg)
 	}
 }
 

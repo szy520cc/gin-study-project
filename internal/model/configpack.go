@@ -93,8 +93,10 @@ type ConfigPackQueryRequest struct {
 
 // ConfigPackResponse 配置包响应
 type ConfigPackResponse struct {
-	ID            uint64 `json:"id"`
-	ProjectID     string `json:"project_id"`
+	ID        uint64 `json:"id"`
+	ProjectID string `json:"project_id"`
+	// ProjectName 所属项目名称（由 service 层批量回填，见 FieldResponse.ProjectName）
+	ProjectName   string `json:"project_name"`
 	Name          string `json:"name"`
 	Logo          string `json:"logo"`
 	Status        uint8  `json:"status"`

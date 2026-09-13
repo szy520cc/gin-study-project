@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"myproject/internal/data"
+	"myproject/internal/engine"
 	"myproject/internal/model"
 	"myproject/pkg/errcode"
 	"myproject/pkg/logger"
@@ -61,7 +62,11 @@ func Publish(ctx context.Context, configID uint64) (*model.ConfigResponse, error
 	if err != nil {
 		return nil, err
 	}
-	return latest.ToResponse(), nil
+	resp := latest.ToResponse()
+	if err := fillConfigFlags(ctx, []*model.ConfigResponse{resp}); err != nil {
+		return nil, err
+	}
+	return resp, nil
 }
 
 // CutProgress 灰度切流：把 cut_num 流量切给待上线版本。
@@ -133,20 +138,35 @@ func CutProgress(ctx context.Context, username string, req *model.CutProgressReq
 		return nil, errcode.ErrInternal.WithDetails("切流已记录但缓存投放失败，请重试")
 	}
 
-	return active2.ToResponse(), nil
+	resp := active2.ToResponse()
+	if err := fillConfigFlags(ctx, []*model.ConfigResponse{resp}); err != nil {
+		return nil, err
+	}
+	return resp, nil
 }
 
-// ensureRuleConfigured type=rule 的 config 必须有规则内容才能发布/切流，
-// 避免发布无内容的规则导致线上 eval 报「规则未配置」。
+// ensureRuleConfigured type=rule 的 config 必须有「可用的」规则内容才能发布/切流。
+//
+// 两道检查：
+//  1. 规则记录存在 —— 否则发布/切流后线上 eval 会报「规则未配置」；
+//  2. 库里存的规则脚本能通过 Starlark 编译校验 —— 防止历史脏数据，
+//     或规则行被绕过保存接口直接改坏后仍被发布上线。
+//
+// 这是「规则验证通过才能切流/推全」在服务端的兜底：前端按钮可见性只是体验，
+// 真正的闸门在这里。
 func ensureRuleConfigured(ctx context.Context, c *model.Config) error {
 	if c.Type != model.ConfigTypeRule {
 		return nil
 	}
-	if _, err := data.GetRuleByConfigID(ctx, c.ID); err != nil {
+	r, err := data.GetRuleByConfigID(ctx, c.ID)
+	if err != nil {
 		if data.IsNotFound(err) {
 			return errcode.ErrRuleNotFound.WithDetails("请先在「规则管理」中保存规则内容后再发布/切流")
 		}
 		return err
+	}
+	if verr := engine.ValidateStarlark(r.Rule); verr != nil {
+		return errcode.ErrRuleInvalid.WithDetails("已保存的规则未通过校验，请重新编辑保存：%s", verr.Error())
 	}
 	return nil
 }

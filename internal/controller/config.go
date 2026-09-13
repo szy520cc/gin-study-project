@@ -68,6 +68,18 @@ func DeleteConfig(c *gin.Context) {
 }
 
 // ListConfigs 获取配置列表
+// @Summary 获取配置列表
+// @Tags 配置管理
+// @Produce json
+// @Security Bearer
+// @Param page query int false "页码"
+// @Param page_size query int false "每页数量，最大 100"
+// @Param project_id query string false "所属项目ID"
+// @Param config_pack_id query int false "所属配置包ID"
+// @Param name query string false "配置名称（模糊）"
+// @Param type query string false "配置类型"
+// @Param status query int false "状态 0-待审核 1-生效 2-下线"
+// @Success 200 {object} response.Response{data=response.ListData}
 // @Router /api/v1/configs/list [get]
 func ListConfigs(c *gin.Context) {
 	if _, ok := middleware.RequireUserID(c); !ok {

@@ -99,9 +99,18 @@ func SplitInt64Slice(s string) []int64 {
 	return ids
 }
 
-// ValidateRule 对规则原文做基础校验（占位符格式是否合法）。
-// 返回错误信息，空串表示通过。与 CompileRule 解耦：编译前先校验，
-// 避免把明显写错的占位符（如 ##abc**x##）静默留在脚本里。
+// ValidateRule 对规则原文做完整校验，是「保存 / 切流 / 发布」的唯一校验入口。
+//
+// 三层校验：
+//  1. 占位符格式：所有 ##...## 片段必须形如 ##指标ID**解析路径##，
+//     避免明显写错的占位符（如 ##abc**x##）被静默留在脚本里；
+//  2. Starlark 编译：把原文编译成执行态脚本后做解析 + 名字解析 + 编译（不执行），
+//     拦住语法错误与未定义名字；
+//  3. 结果类型唯一：同一函数混用 return True / return 1，或顶层 result
+//     被赋成多种类型，都会被拒绝（强类型约定，见 engine.validateValueTypes）。
+//
+// 只有三层都通过才返回 nil —— 上层据此拒绝落库与上线，
+// 保证「未通过验证的规则不进 DB、不上线」。
 func ValidateRule(source string) error {
 	if strings.TrimSpace(source) == "" {
 		return fmt.Errorf("规则内容不能为空")
@@ -113,5 +122,7 @@ func ValidateRule(source string) error {
 			return fmt.Errorf("规则占位符格式错误：%s（应为 ##指标ID**解析路径##）", m)
 		}
 	}
-	return nil
+	// 编译成执行态脚本后做 Starlark 语法/编译校验（不执行）
+	script, _ := CompileRule(source)
+	return ValidateStarlark(script)
 }

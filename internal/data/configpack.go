@@ -22,6 +22,19 @@ func GetConfigPackByID(ctx context.Context, id uint64) (*model.ConfigPack, error
 	return &c, nil
 }
 
+// GetConfigPacksByIDs 批量按主键取配置包（配置列表把 config_pack_id 回填成名称用）。
+// 空切片不发 SQL；查不到的 ID 静默跳过（配置包删除后不应让列表整体报错）。
+func GetConfigPacksByIDs(ctx context.Context, ids []uint64) ([]*model.ConfigPack, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	var list []*model.ConfigPack
+	if err := connDb(ctx).Where("id IN ?", ids).Find(&list).Error; err != nil {
+		return nil, err
+	}
+	return list, nil
+}
+
 // UpdateConfigPack 更新可编辑列（name/status/remark，不含 logo）
 func UpdateConfigPack(ctx context.Context, id uint64, c *model.ConfigPack) (int64, error) {
 	res := connDb(ctx).Model(&model.ConfigPack{}).

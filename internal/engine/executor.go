@@ -2,7 +2,9 @@ package engine
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"regexp"
 
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
@@ -124,6 +126,79 @@ func Run(script string, env map[string]any) (starlark.Value, error) {
 		return nil, fmt.Errorf("脚本未给 result 赋值（约定脚本末尾需有 result = ...）")
 	}
 	return result, nil
+}
+
+// ValidateStarlark 对「编译后的成品脚本」做 Starlark 解析 + 名字解析 + 编译校验，不执行。
+//
+// 与 Run 的唯一差别是不做 Program.Init（即不跑脚本），因此能提前拦住：
+//   - 语法错误（括号不配对、缩进错、缺冒号、字符串未闭合等）
+//   - 引用了未定义的名字（预声明名与执行环境保持一致：context / json）
+//   - 结果类型不唯一：同一函数混用 return True / return 1，或顶层 result
+//     被赋成多种类型（见 validateValueTypes）
+//
+// 保存（新增/编辑）与切流/发布前的校验都走这里，
+// 保证「未通过校验的规则不会入库、不会上线」。
+//
+// 报错会被格式化成「第 N 行：<中文说明>」，直接展示给运营。
+func ValidateStarlark(script string) error {
+	options := syntax.LegacyFileOptions()
+	options.TopLevelControl = true
+	options.GlobalReassign = true
+	isPredeclared := func(name string) bool { return name == "context" || name == "json" }
+	file, _, err := starlark.SourceProgramOptions(options, "rule.star", script, isPredeclared)
+	if err != nil {
+		return errors.New(formatStarlarkError(err))
+	}
+	return validateValueTypes(file)
+}
+
+// starlarkPosRe 匹配 go.starlark.net 的报错前缀：`rule.star:行:列: 具体说明`。
+//
+// 注意：**只取行号，不取列号**。校验跑的是「编译后的执行态脚本」，
+// 占位符 `##209**a.b##` 会展开成 `context["a$b$209"]` 把行拉长，
+// 列号随之右移（实测源码第 25 列 → 编译后第 31 列），直接展示会把人带偏。
+// 行号不受影响：占位符不会引入换行，编译前后行号一一对应。
+var starlarkPosRe = regexp.MustCompile(`rule\.star:(\d+):(\d+):\s*(.*)`)
+
+// starlarkErrHints 把编译器的高频报错翻成中文。
+//
+// 顺序有意义：更具体的规则必须排在更宽泛的规则前面
+// （例如 `got end of file, want ')'` 会同时命中通用的 `got X, want 'Y'`）。
+// 全部命中不了时原样返回英文原文 —— 保留原文比猜错更有用。
+var starlarkErrHints = []struct {
+	re   *regexp.Regexp
+	repl string
+}{
+	{regexp.MustCompile(`^return statement not within a function$`),
+		"return 只能写在函数内部（Starlark 不允许函数外的 return）：请用 def 定义函数，并在脚本末尾给 result 赋值"},
+	{regexp.MustCompile(`^undefined: (\w+)$`),
+		"使用了未定义的名称「$1」"},
+	{regexp.MustCompile(`^unexpected EOF in string$`),
+		"字符串没有闭合（缺少收尾的引号）"},
+	{regexp.MustCompile(`^got end of file, want '(.+)'$`),
+		"脚本提前结束，此处应补上 '$1'"},
+	{regexp.MustCompile(`^got newline, want '(.+)'$`),
+		"此处应补上 '$1'（该行提前换行了）"},
+	{regexp.MustCompile(`^got (.+), want '(.+)'$`),
+		"此处应为 '$2'，实际是 $1"},
+}
+
+// formatStarlarkError 把 `rule.star:2:1: got newline, want ':'`
+// 转成 `第 2 行：此处应补上 ':'（该行提前换行了）`。
+func formatStarlarkError(err error) string {
+	raw := err.Error()
+	m := starlarkPosRe.FindStringSubmatch(raw)
+	if m == nil {
+		return raw
+	}
+	detail := m[3]
+	for _, h := range starlarkErrHints {
+		if h.re.MatchString(detail) {
+			detail = h.re.ReplaceAllString(detail, h.repl)
+			break
+		}
+	}
+	return fmt.Sprintf("第 %s 行：%s", m[1], detail)
 }
 
 // ConvertResult 把 Starlark 结果值按 resultType 转成 Go 值。

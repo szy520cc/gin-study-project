@@ -55,23 +55,31 @@ type RuleConditionConfig struct {
 
 // SaveRuleRequest 保存规则请求。
 // 规则挂在 config（type=rule）下；编辑生效版本时会 fork 新版本，返回新 config 信息。
+//
+// TestData 是「试跑入参」，保存闸门必填：服务端会拿它真实执行一遍规则，
+// 跑不通就拒绝落库（见 service.ensureRuleRunnable）。兼容 JSON 对象或 JSON 对象字符串。
 type SaveRuleRequest struct {
-	ConfigID   uint64 `json:"config_id" binding:"required"`
-	Rule       string `json:"rule" binding:"required"`                                        // 含占位符的规则原文
-	ResultType string `json:"result_type" binding:"required,oneof=pass_reject_review hit_result json"`
+	ConfigID   uint64      `json:"config_id" binding:"required"`
+	Rule       string      `json:"rule" binding:"required"` // 含占位符的规则原文
+	ResultType string      `json:"result_type" binding:"required,oneof=pass_reject_review hit_result json"`
+	TestData   interface{} `json:"test_data"` // 试跑入参（必填，服务端据此真实执行规则）
 }
 
 // CreateRuleConfigRequest 一步创建「type=rule 配置 + 规则内容」请求（规则管理页「新增规则」）。
 // 版本号由后端自动生成（时间戳），type 固定为 rule；logo 需为全新标识
 // （同一标识的后续版本只能通过编辑已有版本 fork 产生）。
+//
+// TestData 是「试跑入参」，保存闸门必填：服务端会拿它真实执行一遍规则，
+// 跑不通就拒绝落库（见 service.ensureRuleRunnable）。兼容 JSON 对象或 JSON 对象字符串。
 type CreateRuleConfigRequest struct {
-	ProjectID    string `json:"project_id" binding:"required,max=100"`
-	ConfigPackID uint64 `json:"config_pack_id" binding:"required"`
-	Name         string `json:"name" binding:"required,max=200"`
-	Logo         string `json:"logo" binding:"required,max=200"`
-	Remark       string `json:"remark" binding:"max=2000"`
-	Rule         string `json:"rule" binding:"required"` // 含占位符的规则原文
-	ResultType   string `json:"result_type" binding:"required,oneof=pass_reject_review hit_result json"`
+	ProjectID    string      `json:"project_id" binding:"required,max=100"`
+	ConfigPackID uint64      `json:"config_pack_id" binding:"required"`
+	Name         string      `json:"name" binding:"required,max=200"`
+	Logo         string      `json:"logo" binding:"required,max=200"`
+	Remark       string      `json:"remark" binding:"max=2000"`
+	Rule         string      `json:"rule" binding:"required"` // 含占位符的规则原文
+	ResultType   string      `json:"result_type" binding:"required,oneof=pass_reject_review hit_result json"`
+	TestData     interface{} `json:"test_data"` // 试跑入参（必填，服务端据此真实执行规则）
 }
 
 // RuleResponse 规则响应（含编译后脚本 + 原文 + 引用指标详情）。
@@ -99,12 +107,16 @@ type RuleResponse struct {
 // UpdateRuleConfigRequest 整配置一次保存请求（「配置管理」页编辑弹层）。
 // 在一个请求里同时保存配置基本字段（name/remark）与规则内容（rule/result_type）；
 // 若配置当前生效，保存时自动 fork 新版本（不可变发布链），草稿则原地更新。
+//
+// TestData 是「试跑入参」，保存闸门必填：服务端会拿它真实执行一遍规则，
+// 跑不通就拒绝落库（见 service.ensureRuleRunnable）。兼容 JSON 对象或 JSON 对象字符串。
 type UpdateRuleConfigRequest struct {
-	ConfigID   uint64 `json:"config_id" binding:"required"`
-	Name       string `json:"name" binding:"required,max=200"`
-	Remark     string `json:"remark" binding:"max=2000"`
-	Rule       string `json:"rule" binding:"required"` // 含占位符的规则原文
-	ResultType string `json:"result_type" binding:"required,oneof=pass_reject_review hit_result json"`
+	ConfigID   uint64      `json:"config_id" binding:"required"`
+	Name       string      `json:"name" binding:"required,max=200"`
+	Remark     string      `json:"remark" binding:"max=2000"`
+	Rule       string      `json:"rule" binding:"required"` // 含占位符的规则原文
+	ResultType string      `json:"result_type" binding:"required,oneof=pass_reject_review hit_result json"`
+	TestData   interface{} `json:"test_data"` // 试跑入参（必填，服务端据此真实执行规则）
 }
 
 // TestRunRequest 现场验证请求（不落库、不碰缓存）。
@@ -113,25 +125,36 @@ type UpdateRuleConfigRequest struct {
 type TestRunRequest struct {
 	Rule       string      `json:"rule" binding:"required"` // 规则原文（含占位符）
 	ResultType string      `json:"result_type" binding:"required,oneof=pass_reject_review hit_result json"`
-	Data       interface{} `json:"data"`                    // 目标参数（任意 JSON）
+	Data       interface{} `json:"data"` // 目标参数（任意 JSON）
+	Pack       string      `json:"pack"`
+	Key        string      `json:"key"`
+	Version    string      `json:"version"`
 }
 
 // TestRunResponse 现场验证结果。
-// Value 是执行结果；BindVarInfo 列出每个指标的实际提取值，便于区分「规则写错」与「取值取错」。
+// 响应结构对齐线上 eval 的排查习惯：结果值 + 类型 + 规则上下文 + 每个指标的完整取值详情。
 type TestRunResponse struct {
-	Value       interface{}      `json:"value"`
-	ResultType  string           `json:"result_type"`
-	BindVarInfo []*BindVarResult `json:"bind_var_info"`
+	Pack        string                    `json:"pack"`
+	Key         string                    `json:"key"`
+	Version     string                    `json:"version"`
+	Value       interface{}               `json:"value"`
+	Type        string                    `json:"type"`
+	ResultType  string                    `json:"result_type"`
+	BindVarInfo map[string]*BindVarResult `json:"bind_var_info"`
+	BindVars    []*BindVarResult          `json:"bind_vars"` // 前端表格展示用，保留顺序
 }
 
-// BindVarResult 单个指标的提取结果。
+// BindVarResult 单个指标的详细提取结果。
 type BindVarResult struct {
-	ID      uint64      `json:"id"`
-	Name    string      `json:"name"`
-	Path    string      `json:"parse_path"`
-	Value   interface{} `json:"value"` // 实际提取值（取不到时为默认值）
-	Hit     bool        `json:"hit"`   // 是否从输入数据中成功提取到
-	Default interface{} `json:"default"`
+	ID            uint64      `json:"id"`
+	Source        string      `json:"source"`
+	Type          string      `json:"type"`
+	DefaultConfig string      `json:"default_config"`
+	Name          string      `json:"name"`
+	Path          string      `json:"extract_rule"`
+	Value         interface{} `json:"value"` // 实际提取值（取不到时为默认值）
+	Hit           bool        `json:"hit"`   // 是否从输入里成功取到
+	Default       interface{} `json:"default"`
 }
 
 // PublishRequest 全量发布请求（发布待审核版本，body 带 config id）。

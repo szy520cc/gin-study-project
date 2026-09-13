@@ -614,7 +614,10 @@
   /* ---------------- 自动挂载 ---------------- */
   function autoload(root) {
     var scope = root || document;
-    var list = scope.querySelectorAll('textarea[name="rule"]:not([data-re-mounted]), textarea.rule-editor:not([data-re-mounted])');
+    /* 只增强「可编辑」的规则框：disabled 的 textarea 是只读展示（如试运行弹窗里的
+       「本次运行规则」），若也挂上增强器会变成 contenteditable="true" 的可编辑区，
+       与只读语义冲突。 */
+    var list = scope.querySelectorAll('textarea[name="rule"]:not([data-re-mounted]):not([disabled]), textarea.rule-editor:not([data-re-mounted]):not([disabled])');
     for (var i = 0; i < list.length; i++) mount(list[i]);
   }
   function start() {

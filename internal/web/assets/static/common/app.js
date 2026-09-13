@@ -84,10 +84,20 @@
           appToast('操作成功');
         }
 
+        // 错误提示必须带上 details：后端把「哪个字段不合法 / 第几行语法错」
+        // 放在 details 里，只显示 message（如「规则内容不合法」）运营无从下手。
+        var errMsg = '';
+        if (code !== 0) {
+          errMsg = raw.message || raw.msg || ('请求失败（HTTP ' + res.status + '）');
+          if (typeof raw.details === 'string' && raw.details) {
+            errMsg = errMsg + '：' + raw.details;
+          }
+        }
+
         var body2 = {
           status: code,
           ok: code === 0,
-          msg: code === 0 ? '' : (raw.message || raw.msg || '请求失败（HTTP ' + res.status + '）'),
+          msg: errMsg,
           data: d
         };
 

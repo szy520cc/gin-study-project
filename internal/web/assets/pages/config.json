@@ -6,20 +6,67 @@
     "name": "configCrud",
     "api": {
       "method": "get",
-      "url": "/api/v1/configs/list",
-      "data": { "type": "rule" }
+      "url": "/api/v1/configs/list"
     },
     "perPage": 10,
-    "perPageAvailable": [10, 20, 50, 100],
+    "perPageAvailable": [
+      10,
+      20,
+      50,
+      100
+    ],
+    "pageField": "page",
+    "perPageField": "page_size",
     "columns": [
-      { "name": "id", "label": "ID", "width": 60 },
-      { "name": "name", "label": "配置名称" },
-      { "name": "logo", "label": "配置标识", "width": 150 },
-      { "name": "version", "label": "版本", "width": 150 },
-      { "name": "status_text", "label": "状态", "width": 80 },
-      { "name": "is_latest_text", "label": "最新", "width": 70 },
-      { "name": "cut_num", "label": "切流", "width": 80 },
-      { "name": "updated_at_text", "label": "更新时间", "width": 160 },
+      {
+        "name": "id",
+        "label": "ID",
+        "width": 60
+      },
+      {
+        "name": "project_name",
+        "label": "项目名称",
+        "width": 140
+      },
+      {
+        "name": "config_pack_name",
+        "label": "所属配置包",
+        "width": 160
+      },
+      {
+        "name": "name",
+        "label": "配置名称"
+      },
+      {
+        "name": "logo",
+        "label": "配置标识",
+        "width": 150
+      },
+      {
+        "name": "version",
+        "label": "版本",
+        "width": 150
+      },
+      {
+        "name": "status_text",
+        "label": "状态",
+        "width": 80
+      },
+      {
+        "name": "is_latest_text",
+        "label": "最新",
+        "width": 70
+      },
+      {
+        "name": "cut_num",
+        "label": "切流",
+        "width": 80
+      },
+      {
+        "name": "updated_at_text",
+        "label": "更新时间",
+        "width": 160
+      },
       {
         "type": "operation",
         "label": "操作",
@@ -36,104 +83,263 @@
               "size": "lg",
               "body": {
                 "type": "form",
-                "reload": "configCrud",
+                "id": "configEditForm",
+                "mode": "normal",
+                "submitText": "",
+                "wrapWithPanel": false,
                 "initApi": {
                   "method": "get",
                   "url": "/api/v1/configs/rule/detail?id=${id}",
-                  "adaptor": "var d=payload.data||{};window.RuleEditorContext=window.RuleEditorContext||{};window.RuleEditorContext.projectId=d.project_id||'';d.rule=d.rule_source||'';return {data:d};"
+                  "adaptor": "var d=payload.data||{};window.RuleEditorContext=window.RuleEditorContext||{};window.RuleEditorContext.projectId=d.project_id||'';d.rule=d.rule_source||'';d.trial_verified=false;return {data:d};"
                 },
                 "api": {
                   "method": "post",
-                  "url": "/api/v1/configs/rule/update",
-                  "data": { "config_id": "${id}" }
+                  "url": "/api/v1/configs/rule/update"
                 },
                 "body": [
-                  { "type": "alert", "body": "一个弹层一次保存：基本信息与规则内容一起提交。若当前版本已生效，保存将自动生成新版本草稿，线上版本保持不变。", "level": "info" },
+                  {
+                    "type": "hidden",
+                    "name": "config_id"
+                  },
+                  {
+                    "type": "tpl",
+                    "className": "cfg-sec",
+                    "tpl": "基本信息"
+                  },
                   {
                     "type": "group",
                     "body": [
-                      { "type": "input-text", "name": "project_id", "label": "所属项目", "disabled": true },
-                      { "type": "input-text", "name": "config_pack_id", "label": "配置包ID", "disabled": true }
+                      {
+                        "type": "input-text",
+                        "name": "name",
+                        "label": "配置名称",
+                        "required": true,
+                        "maxLength": 200,
+                        "columnRatio": 3
+                      },
+                      {
+                        "type": "select",
+                        "name": "result_type",
+                        "label": "结果类型",
+                        "required": true,
+                        "options": "$frag:_frags/result-type-options.json",
+                        "columnRatio": 2
+                      }
                     ]
                   },
                   {
                     "type": "group",
                     "body": [
-                      { "type": "input-text", "name": "logo", "label": "配置标识", "disabled": true },
-                      { "type": "input-text", "name": "version", "label": "版本", "disabled": true },
-                      { "type": "input-text", "name": "status_text", "label": "状态", "disabled": true }
+                      {
+                        "type": "static",
+                        "name": "project_id",
+                        "label": "所属项目",
+                        "columnRatio": 2
+                      },
+                      {
+                        "type": "static",
+                        "name": "config_pack_id",
+                        "label": "配置包ID",
+                        "columnRatio": 2
+                      },
+                      {
+                        "type": "static",
+                        "name": "logo",
+                        "label": "配置标识",
+                        "columnRatio": 3
+                      }
                     ]
                   },
-                  { "type": "input-text", "name": "name", "label": "配置名称", "required": true, "maxLength": 200 },
-                  { "type": "textarea", "name": "remark", "label": "备注", "maxLength": 2000, "rows": 2 },
                   {
-                    "type": "textarea",
-                    "name": "rule",
-                    "label": "规则（Starlark）",
-                    "required": true,
-                    "rows": 15,
-                    "className": "rule-editor",
-                    "description": "键入 control 快捷插入字段；Tab 缩进。字段以 ##字段ID**解析路径## 形式保存，示例：if ##209**material.vertical_type## in (0,1,5): return 1。脚本末尾必须给 result 赋值。"
+                    "type": "group",
+                    "body": [
+                      {
+                        "type": "static",
+                        "name": "version",
+                        "label": "版本",
+                        "columnRatio": 3
+                      },
+                      {
+                        "type": "static",
+                        "name": "status_text",
+                        "label": "状态",
+                        "columnRatio": 1
+                      }
+                    ]
                   },
                   {
-                    "type": "select",
-                    "name": "result_type",
-                    "label": "结果类型",
-                    "required": true,
-                    "options": "$frag:_frags/result-type-options.json"
-                  }
-                ]
-              }
-            }
-          },
-          {
-            "type": "button",
-            "label": "验证",
-            "level": "link",
-            "visibleOn": "this.status != 2",
-            "actionType": "dialog",
-            "dialog": {
-              "title": "规则验证（现场执行，不保存）",
-              "size": "lg",
-              "body": {
-                "type": "form",
-                "initApi": {
-                  "method": "get",
-                  "url": "/api/v1/configs/rule/detail?id=${id}",
-                  "adaptor": "window.RuleEditorContext = window.RuleEditorContext || {}; window.RuleEditorContext.projectId = payload.data.project_id || ''; return { data: { rule: payload.data.rule_source || '', result_type: payload.data.result_type || 'pass_reject_review', data: '{}' } };"
-                },
-                "api": {
-                  "method": "post",
-                  "url": "/api/v1/configs/testrun",
-                  "adaptor": "if (payload.status !== 0) { return { status: payload.status, msg: payload.msg || '执行失败', data: payload.data }; } return { status: 0, msg: '执行结果: ' + JSON.stringify(payload.data.value), data: payload.data };"
-                },
-                "body": [
-                  {
                     "type": "textarea",
-                    "name": "rule",
-                    "label": "规则（可临时修改后直接验证）",
-                    "required": true,
-                    "rows": 10,
-                    "className": "rule-editor"
+                    "name": "remark",
+                    "label": "备注",
+                    "maxLength": 2000,
+                    "rows": 1,
+                    "className": "cfg-remark"
                   },
-                  { "type": "hidden", "name": "result_type" },
+                  {
+                    "type": "tpl",
+                    "className": "cfg-sec cfg-sec-line",
+                    "tpl": "Starlark 规则"
+                  },
+                  {
+                    "type": "container",
+                    "className": "cfg-rule-sticky",
+                    "body": [
+                      {
+                        "type": "textarea",
+                        "name": "rule",
+                        "required": true,
+                        "rows": 12,
+                        "className": "rule-editor",
+                        "hiddenLabel": true,
+                        "description": "双击 Ctrl 快捷插入字段；Tab 缩进。字段以 ##字段ID**解析路径## 形式保存。改动规则后需重新试运行才能保存。"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "tpl",
+                    "className": "cfg-sec cfg-sec-line",
+                    "tpl": "试运行"
+                  },
                   {
                     "type": "app-json-editor",
-                    "name": "data",
-                    "label": "目标参数（JSON）",
+                    "name": "test_data",
+                    "label": "试跑入参（JSON）",
                     "required": true,
-                    "validations": { "isJson": true },
-                    "description": "编辑区为 div；自动缩进与括号补全；粘贴自动美化；Tab 2 空格；工具栏「格式化 / 压缩」；非法 JSON 实时标红"
+                    "validations": {
+                      "isJson": true
+                    },
+                    "description": "按字段的解析路径提供目标数据，取不到的字段用默认值；必须是 JSON 对象。"
+                  },
+                  {
+                    "type": "container",
+                    "className": "trial-run-row",
+                    "body": [
+                      {
+                        "type": "button",
+                        "label": "开始试运行",
+                        "level": "primary",
+                        "onEvent": {
+                          "click": {
+                            "actions": [
+                              {
+                                "actionType": "ajax",
+                                "outputVar": "runResult",
+                                "args": {
+                                  "api": {
+                                    "method": "post",
+                                    "url": "/api/v1/configs/testrun",
+                                    "data": {
+                                      "rule": "${rule}",
+                                      "result_type": "${result_type}",
+                                      "data": "${test_data}",
+                                      "pack": "${project_id}",
+                                      "key": "${logo}",
+                                      "version": "${version}"
+                                    }
+                                  },
+                                  "messages": {
+                                    "success": "试运行通过，现在可以保存了"
+                                  }
+                                }
+                              },
+                              {
+                                "actionType": "custom",
+                                "script": "(function(event){var resp=event.data&&event.data.runResult?event.data.runResult.responseData:null;window.__trialResultText=resp?JSON.stringify(resp,null,2):'';var st=document.querySelector('.trial-status');if(st){st.textContent=resp?'运行成功':'未获取到结果';st.className='trial-status '+(resp?'is-ok':'is-fail');}var box=document.querySelector('.trial-result-box');if(box){box.textContent=resp?window.__trialResultText:'（未拿到返回）';}var n=0;function ung(){var gate=document.querySelector('.save-gate');if(gate){gate.classList.remove('save-gate');var g=document.querySelector('.trial-gate-tip');if(g){g.style.display='none';}}if(++n<20&&document.querySelector('.save-gate')){setTimeout(ung,150);}}if(resp){setTimeout(ung,150);}})(event);"
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "type": "tpl",
+                        "className": "trial-status",
+                        "tpl": "尚未运行"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "container",
+                    "className": "trial-result-wrap",
+                    "body": [
+                      {
+                        "type": "container",
+                        "className": "trial-result-head",
+                        "body": [
+                          {
+                            "type": "tpl",
+                            "className": "trial-result-title",
+                            "tpl": "运行结果"
+                          }
+                        ]
+                      },
+                      {
+                        "type": "tpl",
+                        "className": "trial-result",
+                        "tpl": "<pre class=\"trial-result-box\">点「开始试运行」后，这里展示服务端返回的完整 JSON：结果值 + 类型 + 每个指标的实际取值。</pre>"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "container",
+                    "className": "dialog-footer-row",
+                    "body": [
+                      {
+                        "type": "tpl",
+                        "className": "trial-gate-tip",
+                        "tpl": "试运行通过后才能保存"
+                      },
+                      {
+                        "type": "button",
+                        "label": "复制结果",
+                        "className": "trial-copy-btn",
+                        "level": "link",
+                        "size": "sm",
+                        "onEvent": {
+                          "click": {
+                            "actions": [
+                              {
+                                "actionType": "custom",
+                                "script": "var txt=window.__trialResultText||'';var box=document.querySelector('.trial-result-box');if(!txt&&box){txt=box.textContent||'';}var tipEl=document.querySelector('.trial-copy-tip');function tip(m){if(!tipEl){return;}tipEl.textContent=m;setTimeout(function(){if(tipEl.textContent===m){tipEl.textContent='';}},1600);}function fb(){var ta=document.createElement('textarea');ta.value=txt;ta.style.position='fixed';ta.style.left='-9999px';document.body.appendChild(ta);ta.select();var ok=false;try{ok=document.execCommand('copy');}catch(e){}document.body.removeChild(ta);tip(ok?'已复制':'复制失败');}if(!txt){tip('暂无结果');}else{tip('已复制');if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(txt).catch(fb);}else{fb();}}"
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "type": "tpl",
+                        "className": "trial-copy-tip",
+                        "tpl": ""
+                      },
+                      {
+                        "type": "button",
+                        "label": "取消",
+                        "actionType": "cancel"
+                      },
+                      {
+                        "type": "button",
+                        "label": "保存",
+                        "level": "primary",
+                        "actionType": "submit",
+                        "componentId": "configEditForm",
+                        "className": "save-gate"
+                      }
+                    ]
                   }
-                ]
-              }
+                ],
+                "actions": [],
+                "data": {
+                  "trial_verified": false
+                },
+                "labelAlign": "top"
+              },
+              "actions": []
             }
           },
           {
             "type": "button",
             "label": "切流",
             "level": "link",
-            "visibleOn": "this.status == 0",
+            "visibleOn": "this.status == 0 && this.has_active_version == true && this.rule_ready == true",
             "actionType": "dialog",
             "dialog": {
               "title": "灰度切流",
@@ -143,19 +349,63 @@
                 "api": {
                   "method": "post",
                   "url": "/api/v1/configs/cutprogress",
-                  "data": { "config_id": "${id}", "cut_num": "${cut_num}" }
+                  "data": {
+                    "config_id": "${id}",
+                    "cut_num": "${cut_num}"
+                  }
                 },
                 "body": [
-                  { "type": "alert", "body": "切流将把指定比例的流量切到当前待审核版本（灰度状态记录在线上版本）。需先存在已生效版本。", "level": "warning" },
                   {
-                    "type": "input-number",
+                    "type": "alert",
+                    "body": "切流把指定比例的流量切到当前待审核版本，灰度状态记录在线上版本行上。前提：已有生效版本 + 本版本规则已保存且通过校验。",
+                    "level": "warning"
+                  },
+                  {
+                    "type": "select",
                     "name": "cut_num",
                     "label": "切流比例",
                     "required": true,
-                    "min": 0,
-                    "max": 1,
-                    "step": 0.1,
-                    "description": "0-1 之间（不含 0 和 1），如 0.1 表示 10% 流量走新版本"
+                    "clearable": false,
+                    "placeholder": "请选择切流比例",
+                    "options": [
+                      {
+                        "label": "10%",
+                        "value": 0.1
+                      },
+                      {
+                        "label": "20%",
+                        "value": 0.2
+                      },
+                      {
+                        "label": "30%",
+                        "value": 0.3
+                      },
+                      {
+                        "label": "40%",
+                        "value": 0.4
+                      },
+                      {
+                        "label": "50%",
+                        "value": 0.5
+                      },
+                      {
+                        "label": "60%",
+                        "value": 0.6
+                      },
+                      {
+                        "label": "70%",
+                        "value": 0.7
+                      },
+                      {
+                        "label": "80%",
+                        "value": 0.8
+                      },
+                      {
+                        "label": "90%",
+                        "value": 0.9
+                      }
+                    ],
+                    "description": "只能选择 10%~90% 共 9 档，不支持手填。100% 请直接使用「发布」转全量。"
                   }
                 ]
               }
@@ -165,7 +415,7 @@
             "type": "button",
             "label": "发布",
             "level": "primary",
-            "visibleOn": "this.status == 0",
+            "visibleOn": "this.status == 0 && this.rule_ready == true",
             "actionType": "dialog",
             "dialog": {
               "title": "发布确认",
@@ -175,10 +425,16 @@
                 "api": {
                   "method": "post",
                   "url": "/api/v1/configs/publish",
-                  "data": { "id": "${id}" }
+                  "data": {
+                    "id": "${id}"
+                  }
                 },
                 "body": [
-                  { "type": "alert", "body": "确认全量发布该配置？发布后旧版本下线、灰度标记清零，发布即生效。", "level": "warning" }
+                  {
+                    "type": "alert",
+                    "body": "确认全量发布该配置？发布后旧版本下线、灰度标记清零，发布即生效。",
+                    "level": "warning"
+                  }
                 ]
               }
             }
@@ -189,13 +445,61 @@
     "filter": {
       "title": "筛选",
       "body": [
-        { "type": "input-text", "name": "name", "label": "配置名称（模糊）" },
+        {
+          "type": "hidden",
+          "name": "type",
+          "value": "rule"
+        },
+        {
+          "type": "input-text",
+          "name": "name",
+          "label": "配置名称（模糊）"
+        },
         {
           "type": "select",
           "name": "status",
           "label": "状态",
           "clearable": true,
           "options": "$frag:_frags/status-options.json"
+        },
+        {
+          "type": "select",
+          "name": "project_id",
+          "label": "所属项目",
+          "clearable": true,
+          "placeholder": "全部项目",
+          "source": {
+            "method": "get",
+            "url": "/api/v1/projects/list?page=1&page_size=100",
+            "adaptor": "return {options:(payload.data.items||[]).map(function(it){return {label:it.name, value:String(it.id)}})};"
+          },
+          "onEvent": {
+            "change": {
+              "actions": [
+                {
+                  "actionType": "setValue",
+                  "componentId": "configPackFilter",
+                  "ignoreError": true,
+                  "args": {
+                    "value": ""
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "type": "select",
+          "id": "configPackFilter",
+          "name": "config_pack_id",
+          "label": "所属配置包",
+          "clearable": true,
+          "placeholder": "全部配置包",
+          "source": {
+            "method": "get",
+            "url": "/api/v1/config-packs/list?page=1&page_size=100&project_id=${project_id || ''}",
+            "adaptor": "return {options:(payload.data.items||[]).map(function(it){return {label:it.name+'（'+(it.project_name||it.project_id)+'）', value:it.id}})};"
+          }
         }
       ]
     },
@@ -212,69 +516,271 @@
           "size": "lg",
           "body": {
             "type": "form",
-            "reload": "configCrud",
+            "id": "configAddForm",
+            "mode": "normal",
+            "submitText": "",
+            "wrapWithPanel": false,
             "api": {
               "method": "post",
               "url": "/api/v1/configs/rule/add"
             },
             "body": [
-              { "type": "alert", "body": "当前仅支持规则类配置（type=rule）：基本信息与规则内容在一次提交中完成，版本号由系统自动生成。", "level": "info" },
               {
-                "type": "select",
-                "name": "project_id",
-                "label": "所属项目",
-                "required": true,
-                "source": {
-                  "method": "get",
-                  "url": "/api/v1/projects/list?page=1&page_size=100",
-                  "adaptor": "return {options:(payload.data.items||[]).map(function(it){return {label:it.name, value:String(it.id)}})};"
-                },
-                "onEvent": {
-                  "change": {
-                    "actions": [
-                      {
-                        "actionType": "custom",
-                        "script": "window.RuleEditorContext=window.RuleEditorContext||{};window.RuleEditorContext.projectId=event.data.value||'';"
+                "type": "tpl",
+                "className": "cfg-sec",
+                "tpl": "基本信息"
+              },
+              {
+                "type": "group",
+                "body": [
+                  {
+                    "type": "select",
+                    "name": "project_id",
+                    "label": "所属项目",
+                    "required": true,
+                    "source": {
+                      "method": "get",
+                      "url": "/api/v1/projects/list?page=1&page_size=100",
+                      "adaptor": "return {options:(payload.data.items||[]).map(function(it){return {label:it.name, value:String(it.id)}})};"
+                    },
+                    "onEvent": {
+                      "change": {
+                        "actions": [
+                          {
+                            "actionType": "custom",
+                            "script": "window.RuleEditorContext=window.RuleEditorContext||{};window.RuleEditorContext.projectId=event.data.value||'';"
+                          },
+                          {
+                            "actionType": "setValue",
+                            "componentId": "configPackDialog",
+                            "ignoreError": true,
+                            "args": {
+                              "value": ""
+                            }
+                          }
+                        ]
                       }
-                    ]
+                    },
+                    "columnRatio": 1
+                  },
+                  {
+                    "type": "select",
+                    "id": "configPackDialog",
+                    "name": "config_pack_id",
+                    "label": "所属配置包",
+                    "required": true,
+                    "placeholder": "请先选择所属项目",
+                    "source": {
+                      "method": "get",
+                      "url": "/api/v1/config-packs/list?page=1&page_size=100&project_id=${project_id || ''}",
+                      "adaptor": "return {options:(payload.data.items||[]).map(function(it){return {label:it.name+'（'+(it.project_name||it.project_id)+'）', value:it.id}})};"
+                    },
+                    "columnRatio": 1
                   }
-                }
+                ]
               },
               {
-                "type": "select",
-                "name": "config_pack_id",
-                "label": "所属配置包",
-                "required": true,
-                "source": {
-                  "method": "get",
-                  "url": "/api/v1/config-packs/list?page=1&page_size=100",
-                  "adaptor": "return {options:(payload.data.items||[]).map(function(it){return {label:it.name+'('+it.project_id+')', value:it.id}})};"
-                }
-              },
-              { "type": "input-text", "name": "name", "label": "配置名称", "required": true, "maxLength": 200 },
-              { "type": "input-text", "name": "logo", "label": "配置标识", "required": true, "maxLength": 200, "placeholder": "全局唯一；同一标识的后续版本请通过「编辑」自动生成" },
-              {
-                "type": "select",
-                "name": "result_type",
-                "label": "结果类型",
-                "required": true,
-                "options": "$frag:_frags/result-type-options.json"
+                "type": "group",
+                "body": [
+                  {
+                    "type": "input-text",
+                    "name": "name",
+                    "label": "配置名称",
+                    "required": true,
+                    "maxLength": 200,
+                    "columnRatio": 3
+                  },
+                  {
+                    "type": "input-text",
+                    "name": "logo",
+                    "label": "配置标识",
+                    "required": true,
+                    "maxLength": 200,
+                    "placeholder": "全局唯一；同一标识的后续版本请通过「编辑」自动生成",
+                    "columnRatio": 2
+                  },
+                  {
+                    "type": "select",
+                    "name": "result_type",
+                    "label": "结果类型",
+                    "required": true,
+                    "options": "$frag:_frags/result-type-options.json",
+                    "columnRatio": 2
+                  }
+                ]
               },
               {
                 "type": "textarea",
-                "name": "rule",
-                "label": "规则（Starlark）",
-                "required": true,
-                "rows": 15,
-                "className": "rule-editor",
-                "description": "键入 control 快捷插入字段；Tab 缩进。字段以 ##字段ID**解析路径## 形式保存，示例：if ##209**material.vertical_type## in (0,1,5): return 1。脚本末尾必须给 result 赋值。版本号由系统自动生成。"
+                "name": "remark",
+                "label": "备注",
+                "maxLength": 2000,
+                "rows": 1,
+                "className": "cfg-remark"
               },
-              { "type": "textarea", "name": "remark", "label": "备注", "maxLength": 2000, "rows": 2 }
-            ]
-          }
+              {
+                "type": "tpl",
+                "className": "cfg-sec cfg-sec-line",
+                "tpl": "Starlark 规则"
+              },
+              {
+                "type": "container",
+                "className": "cfg-rule-sticky",
+                "body": [
+                  {
+                    "type": "textarea",
+                    "name": "rule",
+                    "required": true,
+                    "rows": 12,
+                    "className": "rule-editor",
+                    "hiddenLabel": true,
+                    "description": "双击 Ctrl 快捷插入字段；Tab 缩进。字段以 ##字段ID**解析路径## 形式保存。版本号由系统自动生成；改动规则后需重新试运行才能保存。"
+                  }
+                ]
+              },
+              {
+                "type": "tpl",
+                "className": "cfg-sec cfg-sec-line",
+                "tpl": "试运行"
+              },
+              {
+                "type": "app-json-editor",
+                "name": "test_data",
+                "label": "试跑入参（JSON）",
+                "required": true,
+                "validations": {
+                  "isJson": true
+                },
+                "description": "按字段的解析路径提供目标数据，取不到的字段用默认值；必须是 JSON 对象。"
+              },
+              {
+                "type": "container",
+                "className": "trial-run-row",
+                "body": [
+                  {
+                    "type": "button",
+                    "label": "开始试运行",
+                    "level": "primary",
+                    "onEvent": {
+                      "click": {
+                        "actions": [
+                          {
+                            "actionType": "ajax",
+                            "outputVar": "runResult",
+                            "args": {
+                              "api": {
+                                "method": "post",
+                                "url": "/api/v1/configs/testrun",
+                                "data": {
+                                  "rule": "${rule}",
+                                  "result_type": "${result_type}",
+                                  "data": "${test_data}",
+                                  "pack": "${project_id}",
+                                  "key": "${logo}",
+                                  "version": "${version}"
+                                }
+                              },
+                              "messages": {
+                                "success": "试运行通过，现在可以保存了"
+                              }
+                            }
+                          },
+                          {
+                            "actionType": "custom",
+                            "script": "(function(event){var resp=event.data&&event.data.runResult?event.data.runResult.responseData:null;window.__trialResultText=resp?JSON.stringify(resp,null,2):'';var st=document.querySelector('.trial-status');if(st){st.textContent=resp?'运行成功':'未获取到结果';st.className='trial-status '+(resp?'is-ok':'is-fail');}var box=document.querySelector('.trial-result-box');if(box){box.textContent=resp?window.__trialResultText:'（未拿到返回）';}var n=0;function ung(){var gate=document.querySelector('.save-gate');if(gate){gate.classList.remove('save-gate');var g=document.querySelector('.trial-gate-tip');if(g){g.style.display='none';}}if(++n<20&&document.querySelector('.save-gate')){setTimeout(ung,150);}}if(resp){setTimeout(ung,150);}})(event);"
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "type": "tpl",
+                    "className": "trial-status",
+                    "tpl": "尚未运行"
+                  }
+                ]
+              },
+              {
+                "type": "container",
+                "className": "trial-result-wrap",
+                "body": [
+                  {
+                    "type": "container",
+                    "className": "trial-result-head",
+                    "body": [
+                      {
+                        "type": "tpl",
+                        "className": "trial-result-title",
+                        "tpl": "运行结果"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "tpl",
+                    "className": "trial-result",
+                    "tpl": "<pre class=\"trial-result-box\">点「开始试运行」后，这里展示服务端返回的完整 JSON：结果值 + 类型 + 每个指标的实际取值。</pre>"
+                  }
+                ]
+              },
+              {
+                "type": "container",
+                "className": "dialog-footer-row",
+                "body": [
+                  {
+                    "type": "tpl",
+                    "className": "trial-gate-tip",
+                    "tpl": "试运行通过后才能保存"
+                  },
+                  {
+                    "type": "button",
+                    "label": "复制结果",
+                    "className": "trial-copy-btn",
+                    "level": "link",
+                    "size": "sm",
+                    "onEvent": {
+                      "click": {
+                        "actions": [
+                          {
+                            "actionType": "custom",
+                            "script": "var txt=window.__trialResultText||'';var box=document.querySelector('.trial-result-box');if(!txt&&box){txt=box.textContent||'';}var tipEl=document.querySelector('.trial-copy-tip');function tip(m){if(!tipEl){return;}tipEl.textContent=m;setTimeout(function(){if(tipEl.textContent===m){tipEl.textContent='';}},1600);}function fb(){var ta=document.createElement('textarea');ta.value=txt;ta.style.position='fixed';ta.style.left='-9999px';document.body.appendChild(ta);ta.select();var ok=false;try{ok=document.execCommand('copy');}catch(e){}document.body.removeChild(ta);tip(ok?'已复制':'复制失败');}if(!txt){tip('暂无结果');}else{tip('已复制');if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(txt).catch(fb);}else{fb();}}"
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "type": "tpl",
+                    "className": "trial-copy-tip",
+                    "tpl": ""
+                  },
+                  {
+                    "type": "button",
+                    "label": "取消",
+                    "actionType": "cancel"
+                  },
+                  {
+                    "type": "button",
+                    "label": "保存",
+                    "level": "primary",
+                    "actionType": "submit",
+                    "componentId": "configAddForm",
+                    "className": "save-gate"
+                  }
+                ]
+              }
+            ],
+            "actions": [],
+            "data": {
+              "trial_verified": false
+            },
+            "labelAlign": "top"
+          },
+          "actions": []
         }
       }
     ],
-    "footerToolbar": ["switch-per-page", "pagination"]
+    "footerToolbar": [
+      "switch-per-page",
+      "pagination"
+    ]
   }
 }

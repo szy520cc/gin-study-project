@@ -23,6 +23,22 @@ func GetProjectByID(ctx context.Context, id uint64) (*model.Project, error) {
 	return &p, nil
 }
 
+// GetProjectsByIDs 批量按主键取项目（列表页把 project_id 回填成项目名称用）。
+//
+// 传空切片直接返回 nil，不发 SQL —— 列表为空时不该产生一次无谓查询。
+// 查不到的 ID 静默跳过（项目被删后，历史数据里的 project_id 会指向不存在的行，
+// 此时名称回填为空即可，不应让整个列表报错）。
+func GetProjectsByIDs(ctx context.Context, ids []uint64) ([]*model.Project, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	var list []*model.Project
+	if err := connDb(ctx).Where("id IN ?", ids).Find(&list).Error; err != nil {
+		return nil, err
+	}
+	return list, nil
+}
+
 // UpdateProject 整行更新可编辑字段（Updates 只更新非零列）。
 // 调用方必须先 Get 确认记录存在；返回 RowsAffected 供并发场景参考。
 func UpdateProject(ctx context.Context, id uint64, p *model.Project) (int64, error) {

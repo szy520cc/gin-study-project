@@ -109,8 +109,10 @@ type DeleteConfigRequest struct {
 
 // ConfigListRequest 配置列表请求
 type ConfigListRequest struct {
-	Page         int    `form:"page" binding:"omitempty,min=1,max=10000"`
-	PageSize     int    `form:"page_size" binding:"omitempty,min=1,max=100"`
+	Page     int `form:"page" binding:"omitempty,min=1,max=10000"`
+	PageSize int `form:"page_size" binding:"omitempty,min=1,max=100"`
+	// ProjectID 所属项目（project 表主键的字符串形式），空串表示不过滤
+	ProjectID    string `form:"project_id" binding:"omitempty,max=100"`
 	ConfigPackID uint64 `form:"config_pack_id" binding:"omitempty,min=1"`
 	Name         string `form:"name" binding:"omitempty,max=200"`
 	Type         string `form:"type" binding:"omitempty,max=50"`
@@ -125,29 +127,42 @@ type ConfigQueryRequest struct {
 
 // ConfigResponse 配置响应
 type ConfigResponse struct {
-	ID           uint64  `json:"id"`
-	ProjectID    string  `json:"project_id"`
-	ConfigPackID uint64  `json:"config_pack_id"`
-	Name         string  `json:"name"`
-	Logo         string  `json:"logo"`
-	Type         string  `json:"type"`
-	Version      string  `json:"version"`
-	Status       uint8   `json:"status"`
-	StatusText   string  `json:"status_text"`
-	IsLatest     uint8   `json:"is_latest"`
-	IsLatestText string  `json:"is_latest_text"`
-	Remark       string  `json:"remark"`
-	CreatedUser  string  `json:"created_user"`
-	UpdatedUser  string  `json:"updated_user"`
-	CreatedAt    int64   `json:"created_at"`
-	CreatedAtText string `json:"created_at_text"`
-	UpdatedAt    int64   `json:"updated_at"`
-	UpdatedAtText string `json:"updated_at_text"`
-	CutNum       float64 `json:"cut_num"`
-	CutAt        int64   `json:"cut_at"`
-	CutAtText    string  `json:"cut_at_text"`
-	CutVersion   string  `json:"cut_version"`
-	CutBy        string  `json:"cut_by"`
+	ID           uint64 `json:"id"`
+	ProjectID    string `json:"project_id"`
+	ConfigPackID uint64 `json:"config_pack_id"`
+	// ProjectName / ConfigPackName 是给人看的可读名称：
+	// project_id 是字符串主键、config_pack_id 是数字主键，直接展示是一串编号，
+	// 由 service 层批量回填（ToResponse 不查库，保持无副作用）。
+	ProjectName    string `json:"project_name"`
+	ConfigPackName string `json:"config_pack_name"`
+	Name           string `json:"name"`
+	Logo           string `json:"logo"`
+	Type           string `json:"type"`
+	Version        string `json:"version"`
+	Status         uint8  `json:"status"`
+	StatusText     string `json:"status_text"`
+	IsLatest       uint8  `json:"is_latest"`
+	IsLatestText   string `json:"is_latest_text"`
+	Remark         string `json:"remark"`
+	CreatedUser    string `json:"created_user"`
+	UpdatedUser    string `json:"updated_user"`
+	CreatedAt      int64  `json:"created_at"`
+	CreatedAtText  string `json:"created_at_text"`
+	UpdatedAt      int64  `json:"updated_at"`
+	UpdatedAtText  string `json:"updated_at_text"`
+	CutNum         float64 `json:"cut_num"`
+	CutAt          int64   `json:"cut_at"`
+	CutAtText      string  `json:"cut_at_text"`
+	CutVersion     string  `json:"cut_version"`
+	CutBy          string  `json:"cut_by"`
+	// HasActiveVersion / RuleReady 是「切流 / 发布」的前置条件标记，
+	// 由 service 层批量回填（ToResponse 不查库，保持无副作用）：
+	//   - HasActiveVersion：同 logo 是否存在 status=1 的线上版本（切流的硬前提，
+	//     灰度状态要挂到线上版本行上）；
+	//   - RuleReady：该 config 是否已保存通过校验的规则内容
+	//     （无规则则发布/切流后线上 eval 会报「规则未配置」）。
+	HasActiveVersion bool `json:"has_active_version"`
+	RuleReady        bool `json:"rule_ready"`
 }
 
 // ToResponse 转响应

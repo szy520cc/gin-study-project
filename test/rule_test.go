@@ -3,6 +3,7 @@ package test
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -57,12 +58,26 @@ func TestRuleLifecycle(t *testing.T) {
 	ruleSrc := fmt.Sprintf("def judge():\n  if ##%d**material.vertical_type## in (0,1,5):\n    return 1\n  return 0\nresult = judge()", fld.ID)
 	resp, err := service.SaveRule(ctx, "tester", &model.SaveRuleRequest{
 		ConfigID: cfg.ID, Rule: ruleSrc, ResultType: model.ResultTypePassRejectReview,
+		TestData: map[string]any{"material": map[string]any{"vertical_type": 1}},
 	})
 	if err != nil {
 		t.Fatalf("保存规则失败: %v", err)
 	}
 	if resp.BindVar != fmt.Sprintf("%d", fld.ID) {
 		t.Errorf("bind_var 错误: %s", resp.BindVar)
+	}
+
+	// 4.1 返回值类型混用的规则必须被保存闸门拒绝
+	// （强类型约定：同一函数不能既 return True 又 return 0，否则同一份规则
+	//   在不同分支会产出 bool / int 两种结果类型）
+	mixedSrc := fmt.Sprintf("def judge():\n  if ##%d**material.vertical_type## in (0,1,5):\n    return True\n  return 0\nresult = judge()", fld.ID)
+	if _, err := service.SaveRule(ctx, "tester", &model.SaveRuleRequest{
+		ConfigID: cfg.ID, Rule: mixedSrc, ResultType: model.ResultTypePassRejectReview,
+		TestData: map[string]any{"material": map[string]any{"vertical_type": 1}},
+	}); err == nil {
+		t.Error("返回值类型混用（bool + int）的规则应被拒绝保存")
+	} else if !strings.Contains(err.Error(), "结果类型") {
+		t.Errorf("报错应说明结果类型不一致，实际: %v", err)
 	}
 
 	// 5. 现场验证（命中 → return 1）
@@ -85,6 +100,7 @@ func TestRuleLifecycle(t *testing.T) {
 	// 7. 编辑生效版本 → fork 新版本 v2（status=0）
 	resp2, err := service.SaveRule(ctx, "tester", &model.SaveRuleRequest{
 		ConfigID: cfg.ID, Rule: ruleSrc, ResultType: model.ResultTypePassRejectReview,
+		TestData: map[string]any{"material": map[string]any{"vertical_type": 1}},
 	})
 	if err != nil {
 		t.Fatalf("编辑生效版本失败: %v", err)
@@ -246,6 +262,7 @@ func TestCreateRuleConfig(t *testing.T) {
 		Logo:         logo,
 		Rule:         ruleSrc,
 		ResultType:   model.ResultTypePassRejectReview,
+		TestData:     map[string]any{"material": map[string]any{"vertical_type": 1}},
 	})
 	if err != nil {
 		t.Fatalf("一步建规则失败: %v", err)
@@ -266,6 +283,7 @@ func TestCreateRuleConfig(t *testing.T) {
 		Logo:         logo,
 		Rule:         "result = 0",
 		ResultType:   model.ResultTypePassRejectReview,
+		TestData:     map[string]any{"material": map[string]any{"vertical_type": 1}},
 	}); err == nil {
 		t.Error("同 logo 二次创建应被拒绝（同一标识后续版本走 fork）")
 	}

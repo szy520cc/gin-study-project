@@ -66,7 +66,11 @@ func GetField(ctx context.Context, id uint64) (*model.FieldResponse, error) {
 	if err != nil {
 		return nil, err
 	}
-	return f.ToResponse(), nil
+	resp := f.ToResponse()
+	if err := fillFieldProjectNames(ctx, []*model.FieldResponse{resp}); err != nil {
+		return nil, err
+	}
+	return resp, nil
 }
 
 // UpdateField 更新字段（整行编辑，default_value 同样做类型一致性与 JSON 校验）
@@ -131,6 +135,10 @@ func ListFields(ctx context.Context, req *model.FieldListRequest) ([]*model.Fiel
 	res := make([]*model.FieldResponse, 0, len(list))
 	for _, f := range list {
 		res = append(res, f.ToResponse())
+	}
+	// 回填项目名称：project_id 存的是主键编号，直接展示对运营不可读
+	if err := fillFieldProjectNames(ctx, res); err != nil {
+		return nil, 0, err
 	}
 	return res, total, nil
 }

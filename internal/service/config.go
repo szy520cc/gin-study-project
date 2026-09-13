@@ -54,7 +54,14 @@ func GetConfig(ctx context.Context, id uint64) (*model.ConfigResponse, error) {
 	if err != nil {
 		return nil, err
 	}
-	return c.ToResponse(), nil
+	resp := c.ToResponse()
+	if err := fillConfigNames(ctx, []*model.ConfigResponse{resp}); err != nil {
+		return nil, err
+	}
+	if err := fillConfigFlags(ctx, []*model.ConfigResponse{resp}); err != nil {
+		return nil, err
+	}
+	return resp, nil
 }
 
 // UpdateConfig 更新配置（不含身份字段）。
@@ -109,7 +116,7 @@ func ListConfigs(ctx context.Context, req *model.ConfigListRequest) ([]*model.Co
 	if req.IsLatest != nil && *req.IsLatest != 0 {
 		il = req.IsLatest
 	}
-	list, total, err := data.ListConfigs(ctx, req.ConfigPackID, req.Name, req.Type, req.Status, il, page, pageSize)
+	list, total, err := data.ListConfigs(ctx, req.ProjectID, req.ConfigPackID, req.Name, req.Type, req.Status, il, page, pageSize)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -117,6 +124,14 @@ func ListConfigs(ctx context.Context, req *model.ConfigListRequest) ([]*model.Co
 	res := make([]*model.ConfigResponse, 0, len(list))
 	for _, c := range list {
 		res = append(res, c.ToResponse())
+	}
+	// 回填项目名称与配置包名称：两个 ID 直接展示都是一串编号
+	if err := fillConfigNames(ctx, res); err != nil {
+		return nil, 0, err
+	}
+	// 回填切流/发布前置标记（has_active_version / rule_ready）
+	if err := fillConfigFlags(ctx, res); err != nil {
+		return nil, 0, err
 	}
 	return res, total, nil
 }

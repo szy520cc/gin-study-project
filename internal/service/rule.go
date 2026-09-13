@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"reflect"
 	"strings"
 	"time"
 
@@ -21,8 +22,9 @@ import (
 // is_latest=1）并保存规则内容。logo 必须是全新标识——同一标识的后续版本只能
 // 通过编辑已有版本 fork 产生（不可变发布链），否则报错引导去编辑入口。
 func CreateRuleConfig(ctx context.Context, username string, req *model.CreateRuleConfigRequest) (*model.RuleResponse, error) {
-	if err := engine.ValidateRule(req.Rule); err != nil {
-		return nil, errcode.ErrRuleInvalid.WithDetails("%s", err.Error())
+	// 保存闸门：必须带试跑入参且真实跑通，否则不落库。
+	if err := ensureRuleRunnable(ctx, req.Rule, req.ResultType, req.TestData); err != nil {
+		return nil, err
 	}
 	ruleScript, bindVar := engine.CompileRule(req.Rule)
 	fields, err := data.GetFieldsByIDs(ctx, bindVar)
@@ -98,18 +100,20 @@ func CreateRuleConfig(ctx context.Context, username string, req *model.CreateRul
 // SaveRule 保存规则（含编译 + 不可变版本链的 fork 语义）。
 //
 // 流程：
-//  1. 校验规则原文（占位符格式）；
+//  1. 保存闸门：校验规则原文（占位符格式 + Starlark 编译）并带试跑入参真实执行一遍，
+//     任一环节不通过直接拒绝，不落库（见 ensureRuleRunnable）；
 //  2. 编译成 Starlark 成品 + 收集指标 ID；
 //  3. 查指标元信息（供前端回显 bind_var_info）；
 //  4. 按 config 状态分流：
 //     - 草稿（status=0）：原地保存/更新规则；
 //     - 生效（status=1）：fork 新 config（新版本号、status=0、is_latest=1），
-//       老版本 is_latest→2 继续生效，复制旧规则到新版本后更新内容。
+//     老版本 is_latest→2 继续生效，复制旧规则到新版本后更新内容。
 //
 // 返回 fork 后（或原地）所在 config 的规则响应。
 func SaveRule(ctx context.Context, username string, req *model.SaveRuleRequest) (*model.RuleResponse, error) {
-	if err := engine.ValidateRule(req.Rule); err != nil {
-		return nil, errcode.ErrRuleInvalid.WithDetails("%s", err.Error())
+	// 保存闸门：必须带试跑入参且真实跑通，否则不落库。
+	if err := ensureRuleRunnable(ctx, req.Rule, req.ResultType, req.TestData); err != nil {
+		return nil, err
 	}
 	ruleScript, bindVar := engine.CompileRule(req.Rule)
 
@@ -172,10 +176,12 @@ func SaveRule(ctx context.Context, username string, req *model.SaveRuleRequest) 
 //   - 生效（status=1）：fork 新版本（新版本号、status=0、is_latest=1），
 //     老版本 is_latest→2 继续生效，本次提交的 name/remark 写到新版本。
 //
+// 保存前先过 ensureRuleRunnable 闸门（试跑入参必填 + 真实执行通过），未通过不落库。
 // 保存后按惯例删除 latest 草稿快照缓存。
 func UpdateRuleConfig(ctx context.Context, username string, req *model.UpdateRuleConfigRequest) (*model.RuleResponse, error) {
-	if err := engine.ValidateRule(req.Rule); err != nil {
-		return nil, errcode.ErrRuleInvalid.WithDetails("%s", err.Error())
+	// 保存闸门：必须带试跑入参且真实跑通，否则不落库。
+	if err := ensureRuleRunnable(ctx, req.Rule, req.ResultType, req.TestData); err != nil {
+		return nil, err
 	}
 	ruleScript, bindVar := engine.CompileRule(req.Rule)
 
@@ -405,14 +411,23 @@ func normalizeData(v interface{}) (map[string]any, error) {
 // TestRun 现场验证：编译 + 提取 + 执行，不落库、不碰缓存。
 // 返回执行结果 + 每个指标的实际提取值，便于区分「规则写错」与「取值取错」。
 func TestRun(ctx context.Context, req *model.TestRunRequest) (*model.TestRunResponse, error) {
-	if err := engine.ValidateRule(req.Rule); err != nil {
+	return executeRule(ctx, req.Rule, req.ResultType, req.Data, req.Pack, req.Key, req.Version)
+}
+
+// executeRule 是「试跑」与「保存闸门」共用的执行核心。
+//
+// 链路：校验原文 → 规范化入参 → 编译成 Starlark 成品 → 按 bind_var 取指标元信息 →
+// 从入参里按解析路径取值（取不到用默认值）→ 执行 → 转换结果。
+// 全程只读：不落库、不碰缓存，可安全地在保存前重复调用。
+func executeRule(ctx context.Context, ruleSource, resultType string, rawData interface{}, pack, key, version string) (*model.TestRunResponse, error) {
+	if err := engine.ValidateRule(ruleSource); err != nil {
 		return nil, errcode.ErrRuleInvalid.WithDetails("%s", err.Error())
 	}
-	inputData, err := normalizeData(req.Data)
+	inputData, err := normalizeData(rawData)
 	if err != nil {
 		return nil, err
 	}
-	ruleScript, bindVar := engine.CompileRule(req.Rule)
+	ruleScript, bindVar := engine.CompileRule(ruleSource)
 	fields, err := data.GetFieldsByIDs(ctx, bindVar)
 	if err != nil {
 		return nil, err
@@ -420,6 +435,7 @@ func TestRun(ctx context.Context, req *model.TestRunRequest) (*model.TestRunResp
 
 	env := make(map[string]any, len(fields))
 	bindResults := make([]*model.BindVarResult, 0, len(fields))
+	bindInfo := make(map[string]*model.BindVarResult, len(fields))
 	for _, f := range fields {
 		meta := engine.FieldMeta{
 			ID:           f.ID,
@@ -434,27 +450,109 @@ func TestRun(ctx context.Context, req *model.TestRunRequest) (*model.TestRunResp
 			val = def
 		}
 		env[meta.EnvKey()] = val
-		bindResults = append(bindResults, &model.BindVarResult{
-			ID:      f.ID,
-			Name:    f.Name,
-			Path:    f.ParsePath,
-			Value:   val,
-			Hit:     hit,
-			Default: def,
-		})
+		item := &model.BindVarResult{
+			ID:            f.ID,
+			Source:        fieldSource(f.ParsePath),
+			Type:          f.Type,
+			DefaultConfig: f.DefaultValue,
+			Name:          f.Name,
+			Path:          f.ParsePath,
+			Value:         val,
+			Hit:           hit,
+			Default:       def,
+		}
+		bindResults = append(bindResults, item)
+		bindInfo[meta.EnvKey()] = item
 	}
 
 	result, err := engine.Run(ruleScript, env)
 	if err != nil {
 		return nil, errcode.ErrRuleExecuteFailed.WithDetails("%s", err.Error())
 	}
-	value, err := engine.ConvertResult(result, req.ResultType)
+	value, err := engine.ConvertResult(result, resultType)
 	if err != nil {
 		return nil, errcode.ErrRuleExecuteFailed.WithDetails("%s", err.Error())
 	}
 	return &model.TestRunResponse{
+		Pack:        pack,
+		Key:         key,
+		Version:     version,
 		Value:       value,
-		ResultType:  req.ResultType,
-		BindVarInfo: bindResults,
+		Type:        resultValueType(value),
+		ResultType:  resultType,
+		BindVarInfo: bindInfo,
+		BindVars:    bindResults,
 	}, nil
+}
+
+// isEmptyTestData 判断「试跑入参」是否等于没填。
+// 前端 JSON 编辑器提交的是文本，空编辑器会给出 ""；amis 也可能给出 {} 或 "null"，
+// 这些都不算「编写了对应的 json」，一律按未填写处理。
+func isEmptyTestData(v interface{}) bool {
+	switch t := v.(type) {
+	case nil:
+		return true
+	case string:
+		s := strings.TrimSpace(t)
+		return s == "" || s == "{}" || s == "null"
+	case map[string]any:
+		return len(t) == 0
+	}
+	return false
+}
+
+// ensureRuleRunnable 保存闸门：规则必须先「带着入参真实跑通」才允许落库。
+//
+// 这是「验证不是独立功能」的落点——新增/编辑配置时不需要单独点验证按钮，
+// 保存接口自己就会跑一遍，跑不通直接拒绝，未验证通过的配置不可能写进数据库。
+//
+// 两道关卡缺一不可：
+//  1. 必须携带试跑入参 JSON —— 只给规则没法验证取值，直接拒绝；
+//  2. 用该入参真实执行 —— 占位符格式错、Starlark 编译错、运行时错、
+//     结果类型不匹配，都会在这里暴露并带着行号/中文说明返回给运营。
+// fieldSource 返回解析路径的顶层来源，例如 material.title -> material。
+func fieldSource(path string) string {
+	if i := strings.IndexByte(path, '.'); i >= 0 {
+		return path[:i]
+	}
+	if i := strings.IndexByte(path, '$'); i >= 0 {
+		return path[:i]
+	}
+	return path
+}
+
+// resultValueType 返回试运行结果的 JSON 类型，便于页面快速判断结果是否符合预期。
+func resultValueType(v interface{}) string {
+	if v == nil {
+		return "null"
+	}
+	if v == "" {
+		return "string"
+	}
+	switch v.(type) {
+	case bool:
+		return "bool"
+	case string:
+		return "string"
+	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
+		return "int"
+	case float32, float64:
+		return "float"
+	}
+	kind := reflect.TypeOf(v).Kind()
+	if kind == reflect.Slice || kind == reflect.Array {
+		return "array"
+	}
+	if kind == reflect.Map || kind == reflect.Struct {
+		return "object"
+	}
+	return kind.String()
+}
+
+func ensureRuleRunnable(ctx context.Context, ruleSource, resultType string, rawData interface{}) error {
+	if isEmptyTestData(rawData) {
+		return errcode.ErrRuleInvalid.WithDetails("保存前必须填写「试跑入参（JSON）」：规则要先能真实跑通才允许保存")
+	}
+	_, err := executeRule(ctx, ruleSource, resultType, rawData, "", "", "")
+	return err
 }

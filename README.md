@@ -1,18 +1,23 @@
-# MyProject
+# MyProject · Starlark 规则执行引擎配置系统
 
-基于 Gin 框架的 Go Web 项目模板，采用清晰的分层架构设计，适用于中小型 Web API 项目快速开发。
+> 基于 Gin 分层框架构建的**规则配置平台**。运营在后台编写含 `if` 判断的 Starlark 规则，**保存时即完成编译校验**（不通过不允许入库），通过后灰度切流、全量发布；业务侧通过一个可被程序调用的 `/engine/eval` 接口，按「项目标识 + 配置标识」实时求值。
+
+四大核心能力：**配置编写（保存即校验）** → **试跑验证** → **线下测试** → **发布管理**。
+
+---
 
 ## 目录
 
+- [这是什么](#这是什么)
+- [核心概念与业务模型](#核心概念与业务模型)
+- [四大核心能力](#四大核心能力)
+- [关键机制](#关键机制)
 - [项目结构](#项目结构)
-  - [依赖方向](#依赖方向)
-  - [每个目录的核心职责](#每个目录的核心职责)
-  - [一个请求怎么流过这些目录](#一个请求怎么流过这些目录)
-  - [新增一个业务模块要改哪些文件](#新增一个业务模块要改哪些文件)
 - [技术栈](#技术栈)
 - [快速开始](#快速开始)
 - [配置说明](#配置说明)
 - [分层架构](#分层架构)
+- [后台管理界面](#后台管理界面)
 - [可观测性](#可观测性)
 - [优雅退出与摘流](#优雅退出与摘流)
 - [API 接口](#api-接口)
@@ -20,364 +25,297 @@
 - [错误码](#错误码)
 - [测试](#测试)
 - [常用命令](#常用命令)
+- [版本信息](#版本信息)
+- [CI](#ci)
+- [日志](#日志)
+- [扩展指南](#扩展指南)
 - [License](#license)
+
+## 这是什么
+
+一句话：**把「业务判断逻辑」从代码里搬到配置平台上**。
+
+传统做法是运营提需求、研发改代码、发版上线，一个判断条件的调整要走完整条发布链路。本系统把这类逻辑（例如「素材垂直类型属于 0/1/5 且命中敏感词 → 转人工复核」）抽象成**规则配置**：
+
+- 运营在后台用 Starlark（Python 子集）语法编写规则，语法运营可读；
+- 规则里通过占位符 `##指标ID**解析路径##` 引用「指标」（如 `material.vertical_type`）；
+- 保存时后端把占位符**编译**成 Starlark 取值表达式，落库；
+- 业务侧调用 `/engine/eval` 传入目标参数，引擎提取指标、执行规则、返回结果。
+
+规则支持灰度：先切 10% 流量验证，确认无误再全量发布；线上版本永不原地修改，任何编辑都会 fork 出一个新版本草稿——回滚因此变成「把指针切回去」这种零成本操作。
+
+工程上它是一个标准的 Go 分层项目：Gin + GORM + MySQL + Redis，`data` 层是唯一写 SQL 的地方，分层边界由测试强制。**框架层面的通用能力（配置加载与校验、中间件链、可观测性、优雅退出、事务、日志轮转）都在，业务层面则完全围绕规则引擎组织。**
+
+## 核心概念与业务模型
+
+### 业务层级
+
+```
+project（项目）              顶层容器，一个业务系统，主键是字符串
+└── config_pack（配置包）     项目内的分组
+    └── config（配置）        一条可独立发布的配置；type=rule 表示规则类
+        └── rule（规则）      规则内容：占位符原文 + 编译成品 + 引用指标
+
+field（字段 / 指标）          独立于层级之外，被规则按 ID 引用
+```
+
+关键点：
+
+- **`config` 是版本化的主体**，`version`（时间戳）、`is_latest`、`status`、`cut_num` 都挂在它上面；
+- **`rule` 是 `config` 的从表**（`config_id` 关联），规则内容较大（脚本 + 占位符原文），单独成表符合「按版本取子表」的查询模式；
+- **`field`（指标）不属于任何项目**，是全局共享的取值定义：`parse_path` 是从输入 JSON 里提取值的点路径，`default_value` 是取不到值时的兜底。
+
+### 与上游原型设计资料的映射
+
+`资料/` 目录保留了本系统所借鉴的上游原型设计（表结构、切流原理、性能分析等）。表映射关系如下：
+
+| 上游原型表 | 本项目表 | 说明 |
+|---|---|---|
+| `uc_metric`（指标） | `field`（字段） | 复用。`name`/`type`/`default_value`/`parse_path` 一一对应 |
+| `uc_extension_pack`（扩展包） | `project`（项目） | 复用（顶层容器） |
+| ——（原型无） | `config_pack`（配置包） | 本项目特有的中间分组层 |
+| `uc_extension`（扩展） | `config`（配置） | 复用。原型已具备 `version`/`is_latest`/`status`/`cut_num`/`cut_version`，本项目补了 `cut_by` |
+| `uc_ext_rule`（规则） | `rule`（规则） | **本项目新建** |
+| `uc_ext_value`（简单值） | `config` 的非 rule 类型 | 复用（值本身就是一条配置） |
+
+上游原型中若干**已知缺陷**在实现时被直接规避，详见 `docs/planning/ARCHITECTURE.md` §9.2（如切流比例越界静默失效、灰度回源查错 ID、事务内写 Redis 的窄窗口等）。
+
+## 四大核心能力
+
+### 1. 配置编写
+
+后台「配置管理」页提供 Starlark 规则编辑器：
+
+- 键入 `control` 快捷插入字段占位符；Tab 缩进；末尾必须给 `result` 赋值；
+- 占位符写法 `##指标ID**解析路径##`，例如 `##209**material.vertical_type##`；
+- 编辑器按项目过滤可用指标（字段），避免跨项目引用。
+
+**编辑态与执行态是分离的**：前端保存的是占位符原文，落库时编译成可执行脚本，两个形态各存一列。
+
+### 2. 配置验证（保存闸门 + TestRun 试跑）
+
+**校验是保存的闸门，不是一个独立步骤。** 新增/编辑保存时 `engine.ValidateRule` 做两层校验，任一层不过就整单拒绝、不落库：
+
+1. **占位符格式** —— 所有 `##...##` 片段必须形如 `##指标ID**解析路径##`，避免 `##abc**x##` 这类明显写错的占位符被静默留在脚本里；
+2. **Starlark 编译** —— 编译成执行态脚本后做解析 + 名字解析 + 编译（**不执行**），拦住语法错误与未定义名字，报错带 `第 N 行：中文原因` 的行号定位。
+
+页面层还提供「验证规则」按钮：必须填写非空「试跑入参（JSON）」并真实跑通一次才解锁保存；规则或 JSON 改动后必须重新验证。即使绕过页面直接调用保存接口，服务端也会再次执行同一闸门：用该 JSON 取字段并执行规则，运行错误或结果类型不匹配时拒绝保存。
+
+> 校验语义与执行态**完全一致**：`go.starlark.net` 的 `TopLevelControl` 选项在本版本实际不生效，所以**函数外的 `return` 会被拒绝**。规则一律写成 `def rule(): ...` + 末尾 `result = rule()`。
+
+同一套校验也会在 `publish` / `cutprogress` 之前对**库里已存的规则**再跑一遍（`ensureRuleConfigured`），防止历史脏数据、或规则行被绕过保存接口直接改坏之后仍被上线。
+
+此外保留 `POST /api/v1/configs/testrun` 作为**可编程的试跑接口**：输入规则原文 + 结果类型 + 目标参数 JSON，立即返回执行结果，响应里的 `bind_var_info` 列出每个指标的实际提取值（`hit` 标记是否真的从输入里取到、取不到时用的默认值是什么），用于区分「规则写错了」还是「取值取错了」。纯计算，不落库不碰缓存。
+
+### 3. 线下测试（`/engine/eval`）
+
+`POST /api/v1/engine/eval` —— **供程序调用，不挂登录态**。
+
+按「项目标识（pack）+ 配置标识（key）」求值，正是业务程序在真实链路里调用的那个接口。支持三种模式：
+
+| 场景 | 传参 | 行为 |
+|---|---|---|
+| 锁定版本 | `version: "20260912175706987"` | 直接执行指定版本，跳过灰度抽样 |
+| 草稿优先 | `offline_flag: true` | 走 `_latest` 草稿快照（未发布的最新版本） |
+| 默认（线上） | 都不传 | 读版本指针，若处于灰度期则按比例抽样 |
+
+> 该接口刻意不挂鉴权，面向「配置平台被程序调用」的场景。**生产环境必须靠部署网络隔离（内网 / 安全组）或 IP 白名单中间件保护**，不要直接暴露到公网。
+
+### 4. 发布管理（灰度切流 + 全量发布）
+
+| 动作 | 接口 | 说明 |
+|---|---|---|
+| 灰度切流 | `POST /api/v1/configs/cutprogress` | 把指定比例的流量切到待审核版本 |
+| 全量发布 | `POST /api/v1/configs/publish` | 待审核版本转为生效、旧版本下线、灰度标记清零，发布即生效 |
+
+**两个动作都有前置条件**（后台按钮据此决定是否显示，服务端另有兜底校验，见 `ensureRuleConfigured`）：
+
+- 目标必须是**待审核**版本（`status=0`）——生效版本要改，只能先编辑 fork 出新草稿；
+- 规则必须**已保存且通过校验**（列表接口回传 `rule_ready`）；
+- 切流还要求**同标识已有线上版本**（列表接口回传 `has_active_version`）——灰度状态是写在线上版本行上的，没有线上版本就无处可挂。
+
+**切流比例在后台只提供 10%~90% 共 9 档**（下拉选择，不支持手填；100% 请走「发布」转全量），接口层校验 `cut_num ∈ (0,1)` 开区间。这个限制正是为了规避上游原型「比例越界静默失效」的缺陷。
+
+**切流与全量发布没有必然先后顺序**——可以先切流验证再全量，也可以在测试充分的前提下直接全量发布。
+
+## 关键机制
+
+这一节是理解本系统的核心，也是与普通 CRUD 项目最大的区别。
+
+### 不可变版本链
+
+**已生效版本（`status=1`）只读。** 编辑一个线上版本，系统不会原地修改它，而是 fork 出一行新记录：
+
+```
+编辑前：  v20260912120000  status=1  is_latest=2   ← 线上生效中
+编辑后：  v20260912120000  status=1  is_latest=2   ← 仍在生效，内容未变
+         v20260912175706  status=0  is_latest=1   ← 新草稿，承载本次编辑
+```
+
+- 草稿（`status=0`）**原地迭代**，不产生新行；
+- 版本号 = 时间戳，单调递增（实现上加了 3 位随机后缀，避免同秒 fork 撞唯一索引）；
+- `is_latest` 标记当前最新草稿（1=是，2=否）。
+
+收益：灰度发布天然有前提（新旧两版同时在库）、回滚零成本、审计可追溯、发布失败零风险。
+
+### 版本化缓存 key + 指针切换
+
+执行面（`eval`）是热路径，不能每次都查库组装。缓存设计如下：
+
+```
+指针:  cur_ver_{pack}_{ext}               = version      （无 TTL）
+快照:  eval_key_{pack}_{ext}_{version}    = 快照 JSON     （7 天 TTL）
+草稿:  eval_key_{pack}_{ext}_latest       = 快照 JSON     （7 天 TTL，惰性回填）
+```
+
+其中 `pack` = `project.logo`，`ext` = `config.logo`。
+
+**发布不删缓存，只切指针。** 旧版本的 key 靠 TTL 自然淘汰——缓存失效问题由此被转化成了 key 命名问题，这是整套设计里最值得借鉴的一点。
+
+Redis 关闭时（`redis.enabled: false`）所有缓存读写静默降级为直查 DB，不影响功能正确性。
+
+### 灰度切流
+
+灰度状态（`cut_num` / `cut_version` / `cut_by` / `cut_at`）写在**老版本行**上，而不是新版本上。这样做的好处是：执行面一次 GET 就能拿到全量信息（老版本 + 新版本 + 切流比例），不需要两次查询。
+
+执行侧按比例抽样：
+
+```go
+if rand.Float64() < cutNum {
+    // 命中新版本
+}
+```
+
+抽样用 Go 1.20+ 的全局 `rand.Float64()`（并发安全），命中则执行 `NewVersion` 快照，否则执行当前指针指向的版本。
+
+灰度收尾 = `publish`：下线老版本时顺带清空灰度字段。
+
+### 编辑态 / 执行态分离
+
+| 形态 | 存储字段 | 内容 |
+|---|---|---|
+| 编辑态 | `rule.condition_config` | 占位符原文（含 `bind_var`），供前端回显 |
+| 执行态 | `rule.rule` | 编译后的 Starlark 成品脚本 |
+| 引用指标 | `rule.bind_var` | 去重后的指标 ID 列表（逗号分隔） |
+
+前端永远面对占位符原文（人可读、可编辑），引擎永远面对编译成品（可直接执行），两边互不干扰。
+
+### 占位符编译规则
+
+```
+##209**material.vertical_type##   →   context["material$vertical_type${209}"]
+```
+
+- 正则：`##(\d+)\*\*([\w.-]+)##`；
+- `normalize(路径)` = 把 `.` 替换成 `$`；
+- 环境 key 契约：`{normalize(parse_path)}${field.id}`；
+- 编译的同时收集指标 ID 去重写入 `bind_var`。
+
+执行前按 `bind_var` 批量查指标元信息，取不到值时用 `field.default_value` 解析后的默认值兜底。
+
+### eval 决策树
+
+`/engine/eval` 按以下优先级决定执行哪个版本：
+
+```
+1. 显式指定 version            → 直接执行该版本快照（跳过灰度）
+2. offline_flag = true         → 读 _latest 草稿快照（缺失时回源 DB 并惰性回填）
+3. 默认路径                    → 读 cur_ver 指针 + 对应快照
+   └── 指针缺失 / 快照缺失      → 回源 DB 重建快照并写回（自愈）
+4. 灰度期                      → rand.Float64() < cut_num 时执行 NewVersion
+```
+
+### Starlark 执行
+
+- 引擎：`go.starlark.net`，`syntax.LegacyFileOptions()` + `TopLevelControl` + `GlobalReassign`；
+- 沙箱无 IO；注入 `context` 全局变量；从 `globals["result"]` 取结果；
+- 结果类型三种：`pass_reject_review` / `hit_result` / `json`；
+- **设了 `SetMaxExecutionSteps`**：死循环脚本会被强制中断，而不是打满 CPU。
 
 ## 项目结构
 
-先看一眼顶层目录各自负责什么，再往下看细节：
-
-| 目录 | 一句话职责 | 什么时候你会改它 |
-|------|-----------|-----------------|
-| `cmd/` | 可执行程序入口，每个子目录编译出一个二进制 | 新增一个独立进程（如 worker、定时任务）时 |
-| `configs/` | 配置**数据**（yaml），按环境分层覆盖 | 调端口、连接池、限流阈值等运行参数时 |
-| `internal/` | 本项目私有代码，Go 编译器禁止外部 module 引用 | 绝大多数业务开发都在这里 |
-| `pkg/` | 与业务无关的基础设施，不依赖 `internal/` | 换日志库、加一种缓存、扩错误码体系时 |
-| `test/` | 跨层的集成/端到端测试 | 补接口级、中间件级回归时 |
-| `docs/` `scripts/` `logs/` | API 文档产物、构建部署脚本、运行期日志 | 一般不手改 |
-| `docs/planning/` | **所有过程性文档**（需求规划、架构设计、方案、评审、复盘） | 写规划/设计文档时只写在这里 |
-
 ```
 myproject/
-├── cmd/                            # 程序入口目录
-│   ├── server/
-│   │   └── main.go                 # 主程序入口：装配依赖、启动/优雅退出
-│   └── migrate/
-│       └── main.go                 # 数据库迁移入口（make migrate）
-│
-├── configs/                        # 配置数据（只放 yaml，不放 Go 代码）
-│   ├── config.yaml                 # 默认配置（不含任何真实凭据）
-│   ├── config.dev.yaml             # 开发环境配置（覆盖默认配置）
-│   ├── config.test.yaml            # 测试环境配置
-│   ├── config.prod.yaml            # 生产环境配置
-│   └── config.local.yaml           # 本机凭据覆盖（.gitignore，仅非生产环境加载）
-│
-├── internal/                       # 内部包（Go 编译器强制：外部项目无法引用）
-│   ├── config/                     # 配置结构、加载、环境变量绑定、启动校验
-│   │   ├── config.go               # 结构体定义、默认值、加载与合并
-│   │   └── validate.go             # 启动校验（什么样的配置算合法）
-│   │
-│   ├── bootstrap/                  # 进程装配与生命周期（main 只调它）
-│   │   └── bootstrap.go            # 初始化 DB/Redis/两个 server + 启停摘流优雅关闭
-│   │
-│   ├── resource/                   # 进程级共享资源（DB / JWT / Redis / Cfg）
-│   │   └── resource.go             # bootstrap 注入一次；DB(ctx) 自动认领事务
-│   │
-│   ├── controller/                 # HTTP 层（全部包级函数，无 struct 无构造函数）
-│   │   ├── common.go               # 本层公共：参数绑定、pathID、校验错误中文化 + 413 识别
-│   │   ├── system.go               # 系统端点：探针 livez/readyz + 404/405
-│   │   └── user.go                 # 用户相关接口
-│   │
-│   ├── service/                    # 业务逻辑（包级函数，不写 SQL）
-│   │   └── user.go                 # 用户业务（注册、登录、资料、列表）
-│   │
-│   ├── data/                       # 数据访问层（包级函数，唯一写 SQL 的地方）
-│   │   ├── common.go               # connDb(ctx) 事务感知连接 + IsNotFound/IsDuplicate
-│   │   └── user.go                 # 用户表读写
-│   │
-│   ├── model/                      # 数据模型定义
-│   │   ├── common.go               # 分页请求 + 全项目唯一的分页归一化 NormalizePage
-│   │   └── user.go                 # 用户模型、请求/响应结构体
-│   │
-│   ├── middleware/                 # HTTP 中间件
-│   │   ├── common.go               # 本层公共：NoOp 占位中间件
-│   │   ├── requestid.go            # 请求 ID 生成/透传，绑定 ctx logger
-│   │   ├── recovery.go             # panic 恢复（结构化日志 + 堆栈 + 指标）
-│   │   ├── metrics.go              # RED 指标采集（route 标签用路由模板）
-│   │   ├── logger.go               # 访问日志（脱敏，按需记录 body）
-│   │   ├── secure.go               # 安全响应头（nosniff / DENY / CSP / HSTS）
-│   │   ├── auth.go                 # JWT 认证 + SelfOnly 归属校验
-│   │   ├── cors.go                 # 跨域（白名单来自配置）
-│   │   ├── ratelimit.go            # 单机令牌桶限流（按 IP，分 global/auth 配额）
-│   │   ├── bodylimit.go            # 请求体大小上限（超限返回 413）
-│   │   └── timeout.go              # 单请求 ctx 超时
-│   │
-│   └── router/                     # 路由配置
-│       └── router.go               # 引擎设置 + 中间件顺序 + 全部路由表
-│
-├── pkg/                            # 与业务无关的基础设施，不依赖 internal/
-│   ├── auth/                       # 认证原语
-│   │   ├── jwt.go                  # JWT 生成与解析
-│   │   └── password.go             # 密码哈希与校验（bcrypt）
-│   ├── database/mysql.go           # MySQL 连接池 + GORM 日志接入
-│   ├── cache/redis.go              # Redis 客户端封装
-│   ├── logger/                     # 基于 log/slog 的日志
-│   │   ├── logger.go               # slog 初始化、级别、ctx 贯穿
-│   │   └── rotate.go               # 按小时轮转的文件写入器 + 保留策略
-│   ├── response/response.go        # 统一响应封装
-│   ├── errcode/errcode.go          # 错误码体系（支持 Unwrap/Is）
-│   ├── health/                     # 依赖健康检查
-│   │   ├── health.go               # Registry：注册、探测、结果缓存、摘流状态
-│   │   └── std.go                  # 包级默认注册表（RegisterFunc / Check 直接调用）
-│   ├── metrics/metrics.go          # Prometheus 指标定义 + DB 连接池采集
-│   ├── admin/admin.go              # 内部端口：/metrics、/debug/pprof、/version
-│   ├── transaction/transaction.go  # 事务边界：Do(ctx, fn)，句柄放 ctx，支持嵌套
-│   ├── safego/safego.go            # 带 panic 保护的 goroutine 启动方式
-│   └── buildinfo/buildinfo.go      # 编译期注入的版本信息
-│
-├── scripts/                        # 脚本目录
-│   ├── build.sh                    # 构建脚本
-│   └── deploy.sh                   # 部署脚本
-│
-├── docs/swagger/                   # Swagger API 文档（make swagger 生成）
-├── docs/planning/                  # 过程性文档统一放这里（需求规划/架构/方案/评审/复盘）
-├── logs/                           # 日志目录，按小时轮转 app_YYYYMMDDHH.log
-│
-├── test/                           # 真库集成测试
-│   ├── setup_test.go               # TestMain：加载配置 / AutoMigrate / resource.Set / 建 engine
-│   ├── user_api_test.go            # 用户接口：注册登录、越权、分页、脱敏
-│   ├── framework_test.go           # 框架层（免 DB）：405/413/限流/探针/panic/指标基数/安全头
-│   ├── layering_test.go            # 分层边界（免 DB）：扫 import 表，service 不许 import gorm
-│   └── tx_test.go                  # 事务：提交、回滚、嵌套、句柄失效
-│                                   # 另有 internal/config/config_test.go、pkg/logger/rotate_test.go
-│                                   #      pkg/transaction/transaction_test.go、internal/middleware/logger_test.go
-│
-├── .github/workflows/ci.yml        # CI：fmt / vet / race test / lint / govulncheck / docker
-├── .golangci.yml                   # 静态检查配置
-├── docker-compose.yml              # 本地依赖（MySQL + Redis）
-├── .air.toml                       # 热重载配置（make dev）
-├── Dockerfile                      # 多阶段构建镜像
-├── .dockerignore                   # 排除凭据/日志/.git，避免进 builder 层
-├── .gitignore                      # Git 忽略配置
-├── go.mod / go.sum                 # 依赖定义与锁定
-├── Makefile                        # 构建命令
-└── README.md                       # 项目说明
+├── cmd/
+│   ├── server/main.go            # 服务入口（-env / -config）
+│   └── migrate/main.go           # AutoMigrate 建表入口
+├── configs/
+│   ├── config.yaml               # 入库默认配置（不含任何凭据）
+│   ├── config.dev.yaml
+│   ├── config.test.yaml
+│   ├── config.prod.yaml
+│   └── config.local.yaml         # 本机凭据（已被 .gitignore 忽略）
+├── docs/
+│   ├── planning/
+│   │   ├── ARCHITECTURE.md                  # ★ 规则引擎架构设计（需求源头，必读）
+│   │   ├── RULE_EDITOR_PLAN.md
+│   │   └── frontend-code-review-2026-09-06.md
+│   └── swagger/
+├── internal/
+│   ├── bootstrap/bootstrap.go    # 唯一装配点
+│   ├── config/                   # 配置加载、优先级合并、启动校验
+│   ├── controller/               # 参数绑定 → 调 service → 统一响应
+│   ├── data/                     # 唯一写 SQL 的层（含 Redis 缓存读写）
+│   ├── engine/                   # ★ Starlark 编译器 + 执行器（纯计算包，可独立单测）
+│   │   ├── compiler.go           #   占位符 → Starlark 表达式 + bind_var 收集
+│   │   ├── extract.go            #   jsoniter 点路径取值 + 默认值兜底
+│   │   └── executor.go           #   Starlark 执行 + 结果转换
+│   ├── middleware/               # 请求 ID / 恢复 / 指标 / 日志 / 安全头 / CORS / 限流 / 超时 / 认证
+│   ├── model/                    # 数据模型与请求/响应结构（含快照结构）
+│   ├── resource/resource.go      # 全局资源容器（DB / Redis / JWT / Cfg）
+│   ├── router/router.go          # 中间件顺序 + 全部路由表
+│   ├── service/                  # 业务规则、事务边界、错误映射
+│   │   ├── rule.go               #   规则保存（含 fork 语义）
+│   │   ├── publish.go            #   发布与灰度切流
+│   │   ├── eval.go               #   决策树 + 灰度抽样 + 回源自愈
+│   │   └── enrich.go             #   列表页可读名称批量回填
+│   └── web/                      # ★ 后台管理界面（go:embed 打进二进制）
+│       ├── web.go
+│       └── assets/
+│           ├── index.html        # amis 容器
+│           ├── login.html        # 独立登录页（不加载 amis）
+│           ├── pages/*.json      # amis 页面 schema（按菜单一项一个文件）
+│           ├── pages/_frags/     # 可复用的选项片段
+│           └── static/           # amis SDK / Bootstrap / 公共 js+css
+├── pkg/
+│   ├── admin/                    # 内部管理端口（/metrics、/debug/pprof、/version）
+│   ├── auth/                     # JWT 签发校验 + bcrypt 密码哈希
+│   ├── buildinfo/                # 版本号注入点（-ldflags -X）
+│   ├── cache/                    # Redis 客户端
+│   ├── database/                 # MySQL 客户端（连接池 + 慢查询日志）
+│   ├── errcode/                  # 错误码定义
+│   ├── health/                   # 健康检查函数注册表
+│   ├── logger/                   # slog 封装 + 按小时轮转
+│   ├── metrics/                  # Prometheus 指标
+│   ├── response/                 # 统一响应格式
+│   ├── safego/                   # 带 panic 恢复的 goroutine
+│   └── transaction/              # 事务唯一入口 transaction.Do
+├── test/                         # 集成测试 + 分层边界测试
+├── 资料/                          # ★ 上游原型设计资料（表结构 / 切流 / 性能 / 接口分析）
+├── scripts/                      # build.sh / deploy.sh
+├── Makefile
+├── Dockerfile / docker-compose.yml
+└── README.md
 ```
 
-### 依赖方向
-
-这套结构的核心约束只有一条：**依赖单向向下，不许回头**。
-
-```
-cmd/  ──▶  internal/bootstrap  ──▶  internal/router ──▶ internal/middleware
-                  │                        │
-                  │                        ▼
-                  │                internal/controller  HTTP 边界：绑定、校验、写响应
-                  │                        │
-                  │                        ▼
-                  │                internal/service     业务规则、事务边界、错误映射
-                  │                        │
-                  │                        ▼
-                  │                internal/data        唯一允许写 SQL 的地方
-                  │                        │
-                  │                        ▼
-                  │                internal/model       结构体，谁都能依赖
-                  │
-                  ├──▶ internal/resource   进程级资源，data/controller/middleware 读
-                  ▼
-             pkg/*   基础设施，不依赖 internal/ 任何东西
-```
-
-两条能自检的规则：
-
-- `pkg/` 里如果出现 `import "myproject/internal/..."`，就是写错了。基础设施一旦反向依赖业务配置，它就没法被单独复用，`config` 字段改名也会波及到它。所以 `database.NewMySQL` 收的是自己的 `Options`，由 `bootstrap` 负责把 `config` 翻译过去。
-- 下层不认识上层。`service` 不接触 `*gin.Context`、不知道 HTTP 状态码（它返回 `errcode` 里的业务错误，由 `pkg/response` 决定映射成几号）、也不写 SQL；`controller` 不碰数据库、不做业务判断；`data` 不认识 `errcode` 与 gin。
-
-这三条边界不靠人守 —— `test/layering_test.go` 直接扫 import 表，`service` import 了 gorm、`controller` import 了 `internal/data`、`data` import 了 `errcode`，测试就红。
-
-### 每个目录的核心职责
-
-#### 入口与装配
-
-**`cmd/`** — 每个子目录编译出一个独立二进制，目录名就是产物名。这里只做「决定用哪份配置 + 调用装配 + 决定退出码」，不写业务。`cmd/server/main.go` 全文 77 行，一眼能读完启动顺序；`cmd/migrate/main.go` 用 GORM AutoMigrate 同步表结构，复用 `bootstrap.DBOptions` 拿到同一套连接参数。
-
-**`internal/bootstrap/`** — 进程的装配车间与生命周期管理者，是理解这个框架最该先读的目录。
-
-整个包只有一个 `bootstrap.go`，按进程生命周期顺序读下来就是全部：
-
-- `Init(cfg)` 按依赖顺序创建组件 —— 数据库（强依赖，失败即退出）→ Redis（可配置关闭）→ 交给 `internal/resource` → HTTP Server → admin Server；同时把 DB/Redis 注册进健康检查、把连接池指标注册进 Prometheus。中途失败会释放已建立的资源（此时调用方的 `defer app.Close()` 还没注册）。业务各层不在这里装配，因为已经没有需要装配的东西了。
-- `Run()` 并发启动业务端口与 admin 端口（admin 起不来只告警不退出），等 SIGINT/SIGTERM，先 `drain()` 摘流再 `Shutdown()`；关闭期间单独监听第二次信号，给运维留「再按一次立刻退出」的逃生口。
-- `Close()` 逆序释放资源。
-
-把这些从 main 里搬出来的好处是：**新增一个依赖只改这一个文件，main 永远不变**。
-
-#### 配置
-
-**`configs/`** — 只放 yaml，不放 Go 代码。四层覆盖，优先级从低到高：`config.yaml`（入库，不含任何真实凭据）→ `config.<env>.yaml` → `config.local.yaml`（本机凭据，已 gitignore）→ 环境变量 `APP_*`。
-
-两条与安全相关的加载规则：`-env` 取值被白名单限定为 `dev/test/prod`（拼错直接启动失败，而不是静默按默认值跑）；`config.local.yaml` **只在非生产环境加载** —— 它优先级高于环境配置，一旦随 `configs/` 目录同步到生产机会静默替换生产的库地址与 JWT secret。`config.prod.yaml` 在 `-env=prod` 时必须存在。
-
-**`internal/config/`** — 配置的 Go 侧，两个文件各管一件事：`config.go` 是结构体定义、默认值、加载合并与环境变量绑定；`validate.go` 是**启动即校验**，会在启动时直接拒绝「JWT secret 用了占位符」「生产环境 secret 短于 32 字节」「CORS 通配符 + allow_credentials」这类问题，而不是等到线上才暴露。拆开是因为「配置怎么加载」和「什么样的配置算合法」是两件独立的事，排查时也总是只看其中一件。放在 `internal/` 是因为配置结构是应用私有的，外部 module 没有理由引用它。
-
-#### HTTP 边界
-
-**`internal/router/`** — 决定「请求进来先经过什么」，以及「有哪些路由」。只有一个 `router.go`，分两段读。
-
-前半段是**服务的形状**，`Setup` 读下来就是启动顺序：
-
-```go
-useBaseMiddleware(r, cfg)      // RequestID → Metrics → BodyLimit → Logger → Recovery → 安全头 → CORS
-registerSystemRoutes(r)        // 探针必须夹在这里：gin 的 Use 只作用于之后注册的路由
-useThrottleMiddleware(r, cfg)  // 限流 + 超时
-registerAPIRoutes(r, cfg)      // /api/v1 业务路由
-registerFallbackRoutes(r)      // 404 / 405
-```
-
-再往下是 `// ---------- 路由表 ----------`，**全部路由集中在这里**：
-
-```go
-v1 := r.Group("/api/v1")
-registerUser(v1, auth, authLimit)
-registerOrder(v1, auth)
-```
-
-**新增接口就在对应的 `registerXxx` 里加一行**，新增模块就加一个 `registerXxx` 函数并在 `registerAPIRoutes` 里调一次 —— `Setup` 一行都不用动。路由集中在一处的好处是「这个服务对外提供什么」有唯一答案，不需要翻 N 个模块文件去拼。
-
-**`internal/resource/`** — 进程级共享资源的持有者，这是本框架「装配」的全部内容。
-
-```go
-// bootstrap 启动时注入一次
-resource.Set(cfg, db, redisClient, jwtManager)
-
-// data 层取连接（其他层不该调 DB）
-db := resource.DB(ctx)   // ctx 里有事务句柄就复用事务，否则用默认连接
-// controller 取 JWT 管理器
-jwt := resource.JWT()
-```
-
-为什么用全局单例而不是层层注入：DB、JWT 这些东西进程内只有一份、生命周期与进程等长，「初始化一次 + 全局读取」是最直接的表达。原来为了能替换实现，每加一个模块要写 data 接口 + 实现 + 构造函数、service 接口 + 实现 + 构造函数，再在 module 包里把它们串起来 —— 五六十行没有一行业务逻辑。现在这些全部消失，分层还在（`internal/data` 仍是唯一写 SQL 的地方），只是层与层之间用包级函数调用而不是接口 + 注入。
-
-代价写在明面上：**业务层不能再用 mock 替换数据库**，所以测试改走真库集成测试（见「测试」一节）。这是个取舍，不是免费的。
-
-**`internal/middleware/`** — 横切关注点，每个文件一个独立能力，装配顺序即执行顺序：
-
-| 文件 | 作用 | 为什么在这个位置 |
-|------|------|-----------------|
-| `requestid.go` | 生成/透传 X-Request-ID，绑进 ctx logger | 最先，后续所有日志都要带它 |
-| `metrics.go` | RED 指标采集（收尾在 defer 里） | 放在限流**之前**，被拒的请求也要计入 QPS；用 defer 才能让 panic 请求也计数、in_flight 能归零 |
-| `bodylimit.go` | 请求体上限，超限 413 | 必须早于任何读 Body 的中间件，否则 MaxBytesReader 包不到真实 Body |
-| `logger.go` | 访问日志，query 与 body 都脱敏，按需记 body | 记日志的那份 body 会截断，但交给 controller 的 Body 始终完整；收尾在 defer 里，panic 请求也留日志 |
-| `recovery.go` | panic 恢复 + 堆栈 + 指标 | 在 Metrics/Logger 的**内层**：先写好 500，外层才能观测到真实状态码（放外层会记成 200）|
-| `secure.go` | nosniff / DENY / CSP / HSTS 响应头 | —— |
-| `cors.go` | 跨域，白名单来自配置 | —— |
-| `ratelimit.go` | 单机令牌桶，按 IP，分 global/auth 两档配额；桶数量有上限，清理由请求驱动 | 认证接口单独限流：bcrypt 是 CPU 放大器 |
-| `timeout.go` | 单请求 ctx 超时 | 最后，包住真正的业务处理 |
-
-`auth.go` 不在全局链上，它是按路由组挂的：`Auth()` 校验 JWT，`SelfOnly()` 做资源归属校验（防止任何登录用户删除任意账号）。
-
-**`internal/controller/`** — HTTP 与业务的翻译层。职责被刻意限制在四件事：绑参、校验、调 service、写响应。**不写业务规则，不碰数据库**。
-
-- `common.go`：本层公共能力集中在这一个文件 —— 泛型 `bindJSON[T]` / `bindQuery[T]`（把「重复的 ShouldBind 样板 + 校验错误中文化 + 413 识别」收敛成一处，校验失败返回的字段名用 json tag，不泄露内部结构体名）、`pathID` 路径参数解析、`InitValidator()`（由 `router.Setup` 调一次）
-- `system.go`：系统端点 —— `/livez`（只看进程活着）、`/readyz`（真探下游，不健康返 503）、404 / 405 统一成 JSON 而不是 gin 默认的纯文本。它们不属于任何业务模块也不经过 service，所以单独一个文件
-- `user.go`：业务接口，每个模块一个文件
-
-#### 业务核心
-
-**`internal/service/`** — 业务规则、事务边界、错误映射，全部是**包级函数**。
-
-```go
-// 没有 interface、没有 struct、没有构造函数，controller 直接调
-func CreateProject(ctx context.Context, req *model.CreateProjectRequest) (*model.ProjectResponse, error) {
-    ...
-    err := data.CreateProject(ctx, project)      // 不碰 gorm
-    if data.IsDuplicate(err) { ... }             // 数据层错误 → 业务错误
-}
-```
-
-- `user.go`：用户业务（注册、登录、资料更新、列表）
-
-**`internal/data/`** — 数据访问层，也全部是包级函数。这是**唯一允许出现 SQL 与 gorm 调用的地方**。
-
-```go
-// 需要连接就调 connDb(ctx) —— 事务中自动复用事务句柄，
-// 所以同一个函数在事务内外都能用，不需要写第二套 XxxWithTx
-func UpdateProject(ctx context.Context, id uint64, req *model.UpdateProjectRequest) error {
-    res := connDb(ctx).Model(&model.Project{}).
-        Where("id = ?", id).
-        Updates(map[string]interface{}{"name": req.Name, "status": req.Status})
-    return res.Error
-}
-```
-
-三条约定写在包注释里：没有 interface 与构造函数；不认识业务错误（只返回 gorm 原始错误，service 用 `data.IsNotFound` / `data.IsDuplicate` 判定后翻译成 `errcode`）；不做业务判断（归属校验、状态流转、分页上限都属于 service）。
-
-**为什么不用「每张表一个 interface + 实现 + 构造函数」的传统 Repository**：那套样板的收益是换实现和 mock 注入，本项目两者都不需要（测试走真库）。包级函数保住了「复杂 SQL 有地方放、业务层看不见 ORM」这两个真收益，去掉了接口声明与装配。将来真要拆多数据源，再给具体函数加分支就行。
-
-需要「同时写两张表且要么都成功」时在 service 用 `transaction.Do(ctx, fn)` 包住，`data` 层的 `connDb(ctx)` 会自动认领 ctx 里的事务句柄，所以事务内外的 data 函数写法完全一样。
-
-**`internal/model/`** — 结构体定义，无行为逻辑。每个模型文件包含三类：数据库实体（`User`）、请求体（`UserRegisterRequest`，带 validator tag）、响应体（`UserResponse`，通过 `ToResponse()` 转换）。**请求/响应与实体分离**是为了不把 `password` 这类字段意外序列化给客户端。
-
-响应体还按「谁在看」分了两个：`UserResponse` 含 email/phone/status，只用于本人视角（`/users/profile`）；`UserPublicResponse` 只有 id/username/avatar/created_at，用于列表和查他人 —— 那两个接口只校验登录，用同一个响应体等于让任何注册用户批量导出全库 PII。
-
-`common.go` 除了 `PageRequest` 还放着 `NormalizePage` —— **全项目唯一一份分页归一化逻辑**。controller 用它回显实际生效的分页，service 用它兜底（绕过 HTTP 层直接调 service 时 binding 的 `max=100` 不生效）。此前 controller 侧和 service 侧各写了一份，改上限只改一边就会出现「回显 100 实际查 1000」这种错位。
-
-#### 基础设施 `pkg/`
-
-判断标准：**换个项目也能直接拷走用的，才放这里**。所有包都不 import `internal/`，需要参数的一律定义自己的 `Options` 结构体，由 `bootstrap` 负责翻译。
-
-| 包 | 核心职责 | 关键设计 |
-|----|---------|---------|
-| `auth/` | 认证原语 | `jwt.go` 显式限定签名算法与签发者（防算法混淆攻击）；`password.go` 是 bcrypt 封装 |
-| `database/` | MySQL 连接池 + GORM 接入 | SQL 日志走应用 logger 同格式；开 `TranslateError` 才能识别唯一键冲突；日志级别与慢查询阈值可配（生产不打印 SQL 参数） |
-| `cache/` | Redis 客户端 | 只保留 Get/Set/Del + `Client()` 逃生口，不做无意义的命令透传 |
-| `logger/` | 基于标准库 `log/slog` | `logger.C(ctx)` 自动带上 request_id；日志按小时轮转（app_YYYYMMDDHH.log），保留天数/份数可配 |
-| `response/` | 统一响应封装 | 生产环境不外泄错误细节（`SetExposeDetails`） |
-| `errcode/` | 错误码体系 | 支持 `Unwrap`/`Is`，可被 `%w` 包装后仍判定类型；`WithCause` 留底层错误进日志但不返给客户端 |
-| `health/` | 依赖健康检查注册表 | 探测结果缓存 2 秒（`/readyz` 无认证，不缓存会被当放大器压 DB）；带摘流状态；一批探测有整体超时且同一时刻只跑一批（不理 ctx 的 checker 挂死时不会持续堆 goroutine）|
-| `metrics/` | Prometheus 指标 | route 标签用**路由模板**而不是真实路径，避免标签基数爆炸；采集 DB 连接池等待数 |
-| `admin/` | 内部管理端口 | `/metrics`、`/debug/pprof`、`/version` 挂在**独立端口且默认只监听回环** —— 这些端点会暴露路由清单与堆信息，不该挂业务端口 |
-| `transaction/` | 事务边界 | 事务句柄放 ctx，`data` 层的 `connDb(ctx)` 自动认领；支持嵌套复用（SavePoint 语义）；写入口不导出（外部无法用普通 `*gorm.DB` 冒充事务），句柄在 `Do` 返回后失效 |
-| `safego/` | 带 panic 保护的 goroutine | 裸 `go func()` 里的 panic 无法被中间件 recover，会直接崩进程 |
-| `buildinfo/` | 编译期注入的版本信息 | 由 Makefile 通过 `-ldflags` 写入 |
-
-#### 辅助目录
-
-- **`test/`** — 真库集成测试：`setup_test.go` 在 `TestMain` 里连库、AutoMigrate、`resource.Set` 并建好 engine，`user_api_test.go` / `order_api_test.go` / `tx_test.go` 走完整链路打真实数据库，`framework_test.go` 与 `layering_test.go` 不依赖 DB（前者验框架行为，后者扫 import 表守分层边界）。连不上库时 DB 相关用例会显式 skip 并打印如何起库。单包内的测试放在各自包里（`internal/config/config_test.go`、`pkg/transaction/transaction_test.go` 等）。
-- **`docs/planning/`** — **过程性文档的唯一落脚点**：需求规划（`*_PLAN.md`）、架构设计（`ARCHITECTURE.md`、ADR）、技术方案、评审意见、复盘、调研笔记，全部写在这里。整个 `docs/` 已在 `.gitignore` 中，不入版本库。
-  - 约定动因：过程稿曾散落在仓库根目录（如 `ARCHITECTURE.md`、`RULE_EDITOR_PLAN.md`），换个需求就换个文件、换个位置，回头谁也说不清哪份才是最新。
-  - 配套约束：`.gitignore` **不逐个忽略过程稿文件名**——谁再把过程稿丢到根目录，`git status` 会立刻显示为未跟踪文件，等于自动报警。
-  - 注意：正式文档（`README.md`、接口契约、部署说明）仍应入库并放在仓库根/`configs/` 等常规位置，不要混进 `docs/planning/`。
-- **`docs/swagger/`** — `make swagger` 生成的 API 文档产物。
-- **`scripts/`** — `build.sh` / `deploy.sh`。
-- **`logs/`** — 运行期日志输出，内容已 gitignore，只保留 `.gitkeep`。
-
-### 一个请求怎么流过这些目录
-
-以 `POST /api/v1/orders`（需登录）为例：
-
-```
-1. cmd/server/main.go          进程已启动，bootstrap 装配好的 engine 正在监听
-2. internal/middleware/        requestid → metrics → bodylimit → logger
-                              → recovery → secure → cors → ratelimit → timeout
-                              （探针路由注册在 ratelimit 之前，不受限流与超时约束）
-3. internal/middleware/auth.go Auth() 解析 Bearer token，把 userID 放进 ctx
-4. internal/router/router.go   registerOrder 里声明的路由，匹配到 controller.CreateOrder
-5. internal/controller/order.go RequireUserID 取身份 + bindJSON 绑定校验，失败直接 400/401/413
-6. internal/service/order.go   业务规则校验；多次写入用 transaction.Do 包住
-7. internal/data/order.go      执行 SQL；connDb(ctx) 复用事务句柄
-8. internal/model/order.go     实体 → ToResponse() 转成响应体（不含内部字段）
-9. pkg/response                统一包装成 {code, message, data}；错误经 errcode 映射 HTTP 状态码
-```
-
-排查问题时，用 `X-Request-ID` 在日志里就能串起第 2 步到第 9 步的全部记录。
-
-### 新增一个业务模块要改哪些文件
-
-以加一个 `product` 模块为例：
-
-1. `internal/model/product.go` — 实体 + `TableName()` + 请求/响应结构体 + `ToResponse()`
-2. `internal/data/product.go` — 数据访问函数（包级函数，`connDb(ctx)` 取连接写 SQL）
-3. `internal/service/product.go` — 业务函数（包级函数，调 `data.Xxx`，把 gorm 错误翻成 `errcode`）
-4. `internal/controller/product.go` — 接口函数（包级函数，绑参 → 调 service → 写响应）
-5. `internal/router/router.go` — 加一个 `registerProduct(g, auth)` 并在 `registerAPIRoutes` 里调一次
-6. `cmd/migrate/main.go` — 把 `&model.Product{}` 加进 `models` 列表
-7. `pkg/errcode/errcode.go` — 如需新错误码，按段位追加
-
-**4 个新文件 + 2 处登记点**（路由、迁移清单），全程不需要动 `cmd/server/main.go`、`internal/bootstrap/`、`internal/resource/`。
-
-在已有模块上加一个接口：data 加一个函数、service 加一个函数、controller 加一个函数、router 加一行，没有接口声明要同步，也没有 mock 要更新。
+带 ★ 的目录是理解本项目业务的关键：`internal/engine`（引擎）、`internal/web`（后台）、`docs/planning/ARCHITECTURE.md`（设计文档）、`资料/`（原型资料）。
 
 ## 技术栈
 
 | 类别 | 技术 | 版本 |
 |------|------|------|
-| 语言 | Go | 1.25+ |
+| 语言 | Go | 1.25 |
 | Web 框架 | [Gin](https://github.com/gin-gonic/gin) | 1.9.1 |
 | ORM | [GORM](https://gorm.io/) | 1.25.5 |
+| 规则引擎 | [go.starlark.net](https://github.com/google/starlark-go) | 2026-09-04 |
+| JSON 提取 | [json-iterator](https://github.com/json-iterator/go) | 1.1.12 |
 | 配置管理 | [Viper](https://github.com/spf13/viper) | 1.18.2 |
 | JWT | [golang-jwt](https://github.com/golang-jwt/jwt) | 5.3.1 |
+| 缓存 | [go-redis](https://github.com/redis/go-redis) | 9.3.0 |
 | 指标 | [prometheus/client_golang](https://github.com/prometheus/client_golang) | 1.24.1 |
 | 数据库 | MySQL | 8.0+ |
-| 缓存 | Redis | 6.0+ |
+| 缓存 | Redis | 6.0+（可选，关闭后降级直查 DB） |
+| 后台 UI | [amis](https://aisuda.bce.baidu.com/amis/) | 6.13（本地静态资源，不走 CDN） |
 
 ## 快速开始
 
@@ -447,23 +385,7 @@ mysql -e "CREATE DATABASE IF NOT EXISTS gin DEFAULT CHARACTER SET utf8mb4;"
 make migrate ENV=dev
 ```
 
-也可手工建表：
-
-```sql
--- 用户表
-CREATE TABLE users (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    username VARCHAR(50) NOT NULL UNIQUE,
-    password VARCHAR(255) NOT NULL,
-    email VARCHAR(100) UNIQUE,
-    phone VARCHAR(20),
-    avatar VARCHAR(255),
-    status TINYINT DEFAULT 1 COMMENT '1-正常 0-禁用',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-);
-
-```
+`cmd/migrate/main.go` 的 models 列表就是全部建表清单：`users` / `project` / `field` / `config_pack` / `config` / `rule`。
 
 ### 5. 运行项目
 
@@ -477,6 +399,8 @@ go run cmd/server/main.go
 # 指定环境
 go run cmd/server/main.go -env=prod
 ```
+
+启动日志里会打印路由表与监听地址，便于确认挂载是否符合预期。
 
 ### 6. 访问测试
 
@@ -497,6 +421,8 @@ curl -X POST http://localhost:8080/api/v1/users/login \
   -H "Content-Type: application/json" \
   -d '{"username":"testuser","password":"test123456"}'
 ```
+
+拿到 token 后即可调用后台管理界面：浏览器打开 **http://localhost:8080/admin**。
 
 ## 配置说明
 
@@ -539,7 +465,7 @@ database:
   log_sql_params: false        # 是否把 SQL 绑定参数打进日志；与 log_level 解耦，生产禁止开启
 
 redis:
-  enabled: true                # 关闭后不建连、健康检查不含 Redis
+  enabled: true                # 关闭后不建连、健康检查不含 Redis，缓存静默降级为直查 DB
   host: "127.0.0.1"
   port: 6379
   password: ""
@@ -572,7 +498,7 @@ rate_limit:
   auth_burst: 5
 ```
 
-### 两个容易被忽略的安全配置
+### 三个容易被忽略的安全配置
 
 **`trusted_proxies`**：gin 默认信任所有代理，`ClientIP()` 会取 `X-Forwarded-For` 首段。留空（默认）表示只信任 `RemoteAddr`；部署在 LB/网关后面时必须填其网段，否则按 IP 的限流可被伪造 header 绕过，日志里的来源 IP 也不可信。
 
@@ -666,19 +592,21 @@ go run ./cmd/server -env=prod -config=/etc/myproject/config
 │          • 数据层错误 → errcode                                │
 └──────────────────────────────────────────────────────────────┘
                               │
-                              ▼
-┌──────────────────────────────────────────────────────────────┐
-│                         Data                                 │
-│          • 唯一写 SQL 的地方（包级函数，无 interface）           │
-│          • connDb(ctx) 自动复用 ctx 里的事务句柄                  │
-└──────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌──────────────────────────────────────────────────────────────┐
-│                    Database / Cache                          │
-│                   (MySQL / Redis)                            │
-│        由 internal/resource 持有的全局单例统一提供              │
-└──────────────────────────────────────────────────────────────┘
+              ┌───────────────┴───────────────┐
+              ▼                               ▼
+┌───────────────────────────┐   ┌───────────────────────────┐
+│          Engine           │   │           Data            │
+│   • Starlark 编译 / 执行   │   │  • 唯一写 SQL 的地方        │
+│   • 纯计算包，无外部依赖    │   │  • 缓存读写（cache.go）     │
+│     （可独立单测）          │   │  • connDb(ctx) 自动复用事务 │
+└───────────────────────────┘   └───────────────────────────┘
+                                              │
+                                              ▼
+                              ┌───────────────────────────┐
+                              │      Database / Cache      │
+                              │        (MySQL / Redis)     │
+                              │  由 internal/resource 持有  │
+                              └───────────────────────────┘
 ```
 
 ### 各层职责
@@ -689,9 +617,11 @@ go run ./cmd/server -env=prod -config=/etc/myproject/config
 | **Controller** | `internal/controller/` | 包级函数：参数校验、取 `user_id`、调 Service、统一响应；不持有 DB/Redis |
 | **Service** | `internal/service/` | 包级函数：业务规则、事务边界、错误映射、分页上限；不写 SQL |
 | **Data** | `internal/data/` | 包级函数：唯一写 SQL 的地方，`connDb(ctx)` 自动感知事务；只返回 gorm 原始错误 |
+| **Engine** | `internal/engine/` | 纯计算包：占位符编译、点路径提取、Starlark 执行；不依赖 controller/service/data/resource |
 | **Resource** | `internal/resource/` | 全局资源容器：`DB(ctx)` / `JWT()` / `Redis()` / `Cfg()`，由 bootstrap 一次性 `Set` |
 | **Model** | `internal/model/` | 数据模型定义、请求/响应结构体 |
 | **Middleware** | `internal/middleware/` | 请求 ID、panic 恢复、指标、日志、安全头、跨域、限流、请求体上限、超时、认证 |
+| **Web** | `internal/web/` | 后台管理 UI 的静态资源与 amis schema（`go:embed` 打进二进制） |
 
 ### 装配流程
 
@@ -717,16 +647,17 @@ Controller / Service / Data 都是包级函数，`data` 需要连接时自己去
 
 判断标准只有一条：**一个业务动作是否对应多次写入**。单条 INSERT/UPDATE 本身就是原子的，GORM 默认还会替它套一层事务，再包一次 `transaction.Do` 只是多一次 BEGIN/COMMIT 往返 —— 所以单次写操作不需要显式包事务。
 
-真实用例：一个业务动作要落两张表（例如写主表的同时写一张审计表），两者必须同生同死，否则事后无法审计。用 `transaction.Do` 把它们包在一起即可：
+本项目的真实用例是**发布**：下线其他生效版本、激活目标版本、写 Redis 指针，前两步必须同生同死。
 
 ```go
 return transaction.Do(ctx, func(ctx context.Context) error {
 	// 同一事务里多次写入，任一失败整体回滚
-	if err := connDb(ctx).Create(&primary).Error; err != nil {
+	if err := connDb(ctx).Model(&model.Config{}).Where(...).Updates(...).Error; err != nil {
 		return err
 	}
-	return connDb(ctx).Create(&audit).Error
+	return connDb(ctx).Model(&model.Config{}).Where(...).Updates(...).Error
 })
+// 指针 SET 刻意放在事务 commit 之后 —— 事务内写 Redis 存在「DB 回滚但缓存已改」的窄窗口
 ```
 
 `Do` 把事务句柄放进 ctx，`data` 层的 `connDb(ctx)` 自动认领 —— 所以同一个 data 函数在事务内外都能用，不必写第二套 `XxxWithTx`。闭包返回任何 error 都整体回滚；嵌套调用 `Do` 会复用外层事务（SavePoint 语义）。
@@ -738,8 +669,50 @@ return transaction.Do(ctx, func(ctx context.Context) error {
 请求入口已把 `request_id`（以及认证后的 `user_id`）绑定到 ctx，业务层直接用：
 
 ```go
-logger.C(ctx).Info("order created", "order_no", order.OrderNo, "amount", order.TotalAmount)
+logger.C(ctx).Info("config published", "config_id", id, "version", version)
 ```
+
+## 后台管理界面
+
+后台是一个 **amis 单页应用**，挂在 `/admin`（与业务 API 共享 8080 端口），全部静态资源通过 `go:embed` 打进二进制，部署时不需要额外挂载文件。
+
+### 路径规划
+
+| 路径 | 内容 |
+|---|---|
+| `/admin/login` | 独立登录页（不加载 amis SDK，避免「登录前就要跑 amis 初始化」的鸡生蛋问题） |
+| `/admin/` | amis 容器页（顶栏 + 侧边菜单 + 多标签页） |
+| `/admin/pages/*.json` | amis 页面 schema，一项菜单一个文件 |
+| `/admin/static/*` | amis SDK / Bootstrap / 公共 js+css（带 1 小时 `Cache-Control`） |
+
+> schema JSON 走独立 handler 而不是 `StaticFS`：后者会把整个目录树挂上去，未来误丢一个文件也会被无脑暴露。
+
+### 菜单与页面
+
+菜单配置在 `internal/web/assets/static/common/app_menu.js`（`window.APP_MENU`），改菜单只动这一个文件：
+
+| 分组 | 页面 | schema |
+|---|---|---|
+| 概览 | 首页 | `pages/home.json` |
+| 项目管理 | 项目管理 | `pages/project.json` |
+| 项目管理 | 字段管理 | `pages/field.json` |
+| 配置管理 | 配置包管理 | `pages/config-pack.json` |
+| 配置管理 | 配置管理 | `pages/config.json` |
+| 系统管理 | 用户管理 | `pages/users.json` / `pages/user-add.json` |
+| 系统管理 | 系统监控 | `pages/monitor.json` |
+
+### 几个实现约定
+
+- **响应适配**：后端列表统一返回 `{list, total}`，而 amis 期望 `{items, total, count}`。`app.js` 里的 `authFetcher` 对**所有**响应（含 select 的 `source` 请求）统一做这层转换，所以 schema 适配器里写 `payload.data.items`。
+- **鉴权**：`authFetcher` 是传给 `amis.embed` 的 fetcher，自动带上 `localStorage` 里的 token，并按 amis 6.x 契约把后端 `{code, message, data}` 规整成带 `status` 的响应体。
+- **规则编辑器**：`rule-editor.js` 注册为自定义表单项（`className: "rule-editor"`），负责 `control` 快捷插入占位符与 Tab 缩进。（`json-editor.js` 原用于「目标参数」JSON 编辑区，随独立验证弹窗一并下线，现已无页面引用。）
+- **下拉联动**：amis 6.x 会在 `source.url` 里 `${}` 变量变化时自动重发请求，配置管理页的「所属配置包」筛选即按此跟随「所属项目」。
+- **`api.data` 是「替换」而不是「合并」**——这是本项目踩过坑的两处约定：
+  - 给**表单**配 `api.data` 会**覆盖整个提交体**（表单字段全丢，后端报「xx 不能为空」）；
+  - 给 **crud** 配 `api.data` 会**覆盖整个 query string**（`project_id`/`page`/`page_size` 等筛选与分页参数全丢，表现为「筛选不生效」）。
+  - 因此约定：**新增/编辑表单与 crud 一律不写 `api.data`**，靠表单数据域提交；固定查询条件用隐藏表单项表达（`{ "type": "hidden", "name": "type", "value": "rule" }`）；`api.data` 只用于「删除 / 发布」这类**没有表单字段**的确认框。
+  - 另一个推论：`initApi` 回填的字段会进入表单数据域，提交时**整个数据域**都会被发出（即使没有对应表单项），所以主键无需再手工映射进 `data`。
+- **crud 必须显式声明分页字段名**：`"pageField": "page"`、`"perPageField": "page_size"`。缺省时 amis 发的是 `perPage`，而后端只认 `page_size`，分页大小会静默失效。
 
 ## 可观测性
 
@@ -769,7 +742,7 @@ go tool pprof http://127.0.0.1:9090/debug/pprof/profile?seconds=30
 - `db_pool_*` —— 连接池状态。`db_pool_wait_count_total` 持续增长是「服务变慢但看不出原因」最常见的信号
 - Go 运行时与进程指标（goroutine 数、GC、内存、FD、CPU）
 
-**`route` 标签用的是路由模板（`/api/v1/users/:id`）而不是真实路径。** 用真实路径会让每个 ID 产生一条独立时间序列，指标基数无上限增长，先撑爆 Prometheus 再撑爆自己的内存。未匹配的路径统一归到 `unmatched`，否则扫描器乱打的路径同样会炸标签。`test/observability_test.go` 有用例守着这条约束。
+**`route` 标签用的是路由模板（`/api/v1/users/:id`）而不是真实路径。** 用真实路径会让每个 ID 产生一条独立时间序列，指标基数无上限增长，先撑爆 Prometheus 再撑爆自己的内存。未匹配的路径统一归到 `unmatched`，否则扫描器乱打的路径同样会炸标签。`test/framework_test.go` 有用例守着这条约束。
 
 ### Prometheus 抓取配置
 
@@ -804,6 +777,18 @@ histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by 
 
 ## API 接口
 
+统一前缀 `/api/v1`。业务模块（项目 / 字段 / 配置包 / 配置）采用**动作式路由**，不按 REST 资源法区分 method：
+
+```
+POST  /xxx/add     添加
+POST  /xxx/update  修改（body 带 id）
+POST  /xxx/delete  删除（body 带 id）
+GET   /xxx/list    列表
+GET   /xxx/detail  详情（query 带 id，供编辑回填）
+```
+
+好处是「这个服务对外提供什么」有唯一答案，且新增接口不用纠结 method 语义。
+
 ### 公开接口
 
 业务端口（默认 `:8080`）：
@@ -815,6 +800,7 @@ histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by 
 | GET | `/health` | 同 `/readyz`，兼容旧路径 | - |
 | POST | `/api/v1/users/register` | 用户注册（独立限流配额） | `UserRegisterRequest` |
 | POST | `/api/v1/users/login` | 用户登录（独立限流配额） | `UserLoginRequest` |
+| POST | `/api/v1/engine/eval` | **规则求值（线下测试，不挂鉴权）** | `EvalRequest` |
 
 内部端口（默认 `127.0.0.1:9090`，不对外暴露）：
 
@@ -830,13 +816,85 @@ histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by 
 
 #### 用户接口
 
-| 方法 | 路径 | 描述 | 请求体/参数 |
-|------|------|------|-------------|
-| GET | `/api/v1/users/profile` | 获取当前用户信息 | - |
-| PUT | `/api/v1/users/profile` | 更新当前用户信息 | `UserUpdateRequest` |
-| GET | `/api/v1/users` | 获取用户列表（仅公开字段：id/username/avatar/created_at） | `?page=1&page_size=10`（page 上限 10000，page_size 上限 100） |
-| GET | `/api/v1/users/:id` | 获取指定用户的公开信息（不含 email/phone/status） | - |
-| DELETE | `/api/v1/users/:id` | 删除用户（**仅限本人**） | - |
+| 方法 | 路径 | 描述 |
+|------|------|------|
+| GET | `/api/v1/users/profile` | 获取当前用户信息 |
+| PUT | `/api/v1/users/profile` | 更新当前用户信息 |
+| GET | `/api/v1/users` | 用户列表（仅公开字段；`?page=1&page_size=10`） |
+| GET | `/api/v1/users/:id` | 指定用户的公开信息（不含 email/phone/status） |
+
+#### 项目管理 `/api/v1/projects/*`
+
+| 方法 | 路径 | 描述 |
+|------|------|------|
+| POST | `/add` | 新建项目（`logo` 为全局唯一标识，是 eval 的 `pack`） |
+| POST | `/update` | 修改 |
+| POST | `/delete` | 删除 |
+| GET | `/list` | 列表 |
+| GET | `/detail` | 详情（`?id=`） |
+
+#### 字段管理（指标）`/api/v1/fields/*`
+
+| 方法 | 路径 | 描述 |
+|------|------|------|
+| POST | `/add` | 新建指标（`parse_path` 为点路径，如 `material.vertical_type`） |
+| POST | `/update` | 修改 |
+| POST | `/delete` | 删除 |
+| GET | `/list` | 列表 |
+| GET | `/detail` | 详情（`?id=`） |
+
+#### 配置包管理 `/api/v1/config-packs/*`
+
+同上五个动作（`add` / `update` / `delete` / `list` / `detail`）。
+
+#### 配置管理 `/api/v1/configs/*`
+
+| 方法 | 路径 | 描述 |
+|------|------|------|
+| POST | `/add` | 新建配置 |
+| POST | `/update` | 修改 |
+| POST | `/delete` | 删除 |
+| GET | `/list` | 列表（支持 `project_id` / `config_pack_id` / `name` / `type` / `status` / `is_latest` 筛选） |
+| GET | `/detail` | 详情（`?id=`） |
+
+#### 规则与发布 `/api/v1/configs/*`
+
+| 方法 | 路径 | 描述 | 请求体 |
+|------|------|------|--------|
+| POST | `/rule/add` | 一步创建「type=rule 配置 + 规则内容」，版本号自动生成，`logo` 查重 | `CreateRuleConfigRequest` |
+| POST | `/rule/update` | 更新规则（编辑生效版本会自动 fork 新版本草稿） | `UpdateRuleConfigRequest` |
+| POST | `/rule/save` | 保存规则（编译落库，含 fork 语义） | `SaveRuleRequest` |
+| GET | `/rule/detail` | 规则详情（含占位符原文供回显 + 引用指标详情） | `?id=` |
+| POST | `/testrun` | **试跑验证**（编译执行，不落库不碰缓存） | `TestRunRequest` |
+| POST | `/publish` | 全量发布 | `PublishRequest` |
+| POST | `/cutprogress` | 灰度切流 | `CutProgressRequest` |
+
+### 规则求值契约（`/api/v1/engine/eval`）
+
+```jsonc
+// 请求
+{
+  "pack": "ec_project",          // 项目标识（project.logo），必填
+  "key": "ec_manual_rule",       // 配置标识（config.logo），必填
+  "version": "",                 // 指定版本则跳过灰度；留空走默认决策树
+  "offline_flag": false,         // true 时读草稿快照（未发布的最新版本）
+  "data": { "material": { "vertical_type": 1 } }   // 目标参数，可为空对象
+}
+
+// 响应
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "pack": "ec_project",
+    "key": "ec_manual_rule",
+    "version": "20260912175706987",   // 实际执行的版本号
+    "value": 1,                        // 执行结果
+    "result_type": "pass_reject_review"
+  },
+  "request_id": "8f1c2d3e4a5b6c7d8e9f0a1b"
+}
+```
 
 ### 响应格式
 
@@ -885,19 +943,107 @@ histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by 
 
 ## 数据模型
 
-### 用户模型 (User)
+时间戳统一用 `int64` 存 Unix 秒（不依赖 GORM 的自动时间戳），避免时区与精度问题。
+
+### `users` 用户
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| id | uint64 | 用户ID |
+| id | uint64 | 用户 ID |
 | username | string | 用户名（唯一） |
-| password | string | 密码（加密存储） |
+| password | string | 密码（bcrypt 哈希，json 序列化时隐藏） |
 | email | string | 邮箱（唯一） |
 | phone | string | 手机号 |
-| avatar | string | 头像URL |
+| avatar | string | 头像 URL |
 | status | int8 | 状态：1-正常，0-禁用 |
-| created_at | time | 创建时间 |
-| updated_at | time | 更新时间 |
+| created_at / updated_at | int64 | Unix 秒 |
+
+### `project` 项目
+
+顶层容器，`id` 是**字符串主键**，`logo` 是全局唯一标识（即 eval 的 `pack`）。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | string | 主键 |
+| name | string | 项目名称 |
+| logo | string | 项目标识（唯一，eval 的 pack） |
+| status | uint8 | 状态 |
+| remark | string | 备注 |
+
+### `config_pack` 配置包
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | uint64 | 主键 |
+| project_id | string | 所属项目 |
+| name | string | 配置包名称 |
+| logo | string | 配置包标识 |
+| status | uint8 | 状态 |
+| remark | string | 备注 |
+
+### `field` 字段（指标）
+
+全局共享，不属于任何项目。`parse_path` 决定从输入 JSON 里怎么取值，`default_value` 决定取不到时用什么。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | uint64 | 主键（即占位符里的「指标 ID」） |
+| name | string | 指标名称 |
+| type | string | 类型（int / string / json 等） |
+| parse_path | string | 解析路径（点路径，如 `material.vertical_type`） |
+| default_value | string | 默认值（JSON，取不到值时兜底） |
+| status | uint8 | 状态 |
+| remark | string | 备注 |
+
+### `config` 配置
+
+版本化主体。`version` / `is_latest` / `status` / 灰度字段都在这一行上。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | uint64 | 主键 |
+| project_id | string | 所属项目 |
+| config_pack_id | uint64 | 所属配置包 |
+| name | string | 配置名称 |
+| logo | string | 配置标识（即 eval 的 `key`，与 `version` 联合唯一） |
+| type | string | 类型，`rule` 表示规则类 |
+| version | string | 版本号（时间戳 + 3 位随机后缀） |
+| status | uint8 | 0-待审核 / 1-生效 / 2-下线 |
+| is_latest | uint8 | 1-是最新草稿 / 2-否 |
+| cut_num | float64 | 灰度比例 (0,1)，写在**老版本行**上 |
+| cut_version | string | 灰度目标版本 |
+| cut_by | string | 切流操作人 |
+| cut_at | int64 | 切流时间（Unix 秒） |
+| remark | string | 备注 |
+
+### `rule` 规则
+
+`config` 的从表，按 `config_id` 关联。规则内容较大，与主行分离符合「按版本取子表」的查询模式。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | uint64 | 主键 |
+| config_id | uint64 | 关联 `config.id` |
+| rule | string | **编译后**的 Starlark 成品脚本（执行用） |
+| condition_config | string | **占位符原文** JSON（编辑回显用） |
+| bind_var | string | 逗号分隔的指标 ID（去重，执行前批量取元信息用） |
+| result_type | string | `pass_reject_review` / `hit_result` / `json` |
+| engine | string | 写死 `starlark` |
+| pack | string | 冗余：所属项目 `logo` |
+| extension | string | 冗余：所属配置 `logo` |
+| version | string | 冗余：`config.version` |
+
+> `pack` / `extension` / `version` 是刻意冗余的：执行面可以只靠这三个字段直接定位规则，不必再回查 `config` 表。
+
+### Redis 缓存结构
+
+| Key | 值 | TTL |
+|---|---|---|
+| `cur_ver_{pack}_{ext}` | 当前生效版本号 | 无 |
+| `eval_key_{pack}_{ext}_{version}` | 版本快照（`ConfigSnapshot` JSON） | 7 天 |
+| `eval_key_{pack}_{ext}_latest` | 草稿快照（惰性回填） | 7 天 |
+
+`ConfigSnapshot` 一次装全量：主表信息 + 规则 + 引用指标元信息，灰度期还会嵌一个 `new_version`（同结构）装待上线版本——一个 key 装两份。
 
 ## 错误码
 
@@ -910,7 +1056,6 @@ histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by 
 | 10002 | 400 | 参数错误 |
 | 10003 | 404 | 资源不存在 |
 | 10004 | 401 | 未授权 |
-| 10005 | 403 | 禁止访问 |
 | 10006 | 429 | 请求过于频繁 |
 | 10007 | 504 | 请求处理超时（`context.DeadlineExceeded`） |
 | 10008 | 405 | 方法不允许 |
@@ -938,14 +1083,62 @@ histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by 
 | 30004 | 400 | 密码错误 |
 | 30005 | 403 | 用户已被禁用 |
 
+### 项目错误 (50xxx)
+
+| 错误码 | HTTP 状态码 | 描述 |
+|--------|------------|------|
+| 50001 | 404 | 项目不存在 |
+| 50002 | 400 | 项目标识已存在 |
+
+### 字段错误 (60xxx)
+
+| 错误码 | HTTP 状态码 | 描述 |
+|--------|------------|------|
+| 60001 | 404 | 字段不存在 |
+| 60002 | 400 | 字段解析路径已存在 |
+| 60003 | 400 | 字段类型不合法 |
+| 60004 | 400 | 字段默认值不合法 |
+| 60005 | 400 | 字段默认值类型与字段类型不一致 |
+
+### 配置包错误 (70xxx)
+
+| 错误码 | HTTP 状态码 | 描述 |
+|--------|------------|------|
+| 70001 | 404 | 配置包不存在 |
+| 70002 | 400 | 配置包标识已存在 |
+
+### 配置错误 (80xxx)
+
+| 错误码 | HTTP 状态码 | 描述 |
+|--------|------------|------|
+| 80001 | 404 | 配置不存在 |
+| 80002 | 400 | 配置版本已存在 |
+
+### 规则与发布错误 (90xxx)
+
+| 错误码 | HTTP 状态码 | 描述 |
+|--------|------------|------|
+| 90001 | 404 | 规则不存在 |
+| 90002 | 400 | 规则内容不合法（占位符格式或 Starlark 编译未通过，`details` 带 `第 N 行` 定位） |
+| 90003 | 500 | 规则执行失败 |
+| 90010 | 400 | 配置已生效，不能重复发布 |
+| 90011 | 400 | 配置状态不合法 |
+| 90012 | 400 | 切流比例必须在 (0,1) 之间 |
+| 90013 | 400 | 无生效版本，无法切流 |
+
 ## 测试
 
 框架不留 mock 注入点，所以业务链路一律**打真实数据库**。理由很直接：mock 出来的 DB 只能验证「我调了这个方法」，验不了唯一键冲突、条件更新的 `RowsAffected`、事务回滚这些真正会出问题的地方 —— 而这些恰好是本框架的核心机制。
 
-测试分两类：
+测试分三类：
 
-- **免 DB 的框架测试** `test/framework_test.go` —— 405/413、限流、探针绕过限流、panic 记成 500、指标 route 标签是模板、安全头。`test/layering_test.go` 扫 import 表守分层边界（service 不许 import gorm、controller 不许 import data、data 不许 import errcode）。这两个任何环境都能跑。
-- **真库集成测试** `test/user_api_test.go`、`tx_test.go` —— 走完整 HTTP 链路（`httptest` + 真 engine + 真库），用例自己 `t.Cleanup` 清数据。连不上库时会 `t.Skip` 并打印起库命令，不会静默通过。
+- **免 DB 的框架测试** `test/framework_test.go` —— 405/413、限流、探针绕过限流、panic 记成 500、指标 route 标签是模板、安全头。任何环境都能跑。
+- **分层边界测试** `test/layering_test.go` —— 扫 import 表守分层约束：`service` 不许 import `gorm` / `resource`，`controller` 不许 import `data`，`data` 不许 import `errcode` / `gin`。任何环境都能跑。
+- **真库集成测试** `test/user_api_test.go`、`test/tx_test.go`、`test/rule_test.go` —— 走完整 HTTP 链路（`httptest` + 真 engine + 真库），用例自己 `t.Cleanup` 清数据。连不上库时会 `t.Skip` 并打印起库命令，不会静默通过。
+
+其中 `test/rule_test.go` 的 `TestRuleLifecycle` 覆盖了完整的业务生命周期：建指标 → 保存规则（占位符编译）→ 试跑验证 → 发布 → 编辑触发 fork → 灰度切流 → 求值 → 全量收尾 → 越界校验。
+
+引擎侧另有独立单测 `internal/engine/engine_test.go`（编译 / 提取 / 执行 / JSON 结果全链路），因为 `internal/engine` 是纯计算包，不依赖任何基础设施，可以脱离 DB 跑。
 
 `test/setup_test.go` 的 `TestMain` 负责：加载 `configs/config.dev.yaml` → 关掉限流与 body 日志 → 连库 → `AutoMigrate` 所需表 → `health.Init` → `resource.Set` → `router.Setup` 建出全局 engine。
 
@@ -1073,24 +1266,30 @@ time=2026-08-20T10:30:00.123+08:00 level=INFO msg="http request" method=GET path
 每个请求由 RequestID 中间件生成/透传 `X-Request-ID`，并绑定到 ctx logger。业务代码中用 `logger.C(ctx)` 取带 `request_id`（登录后还带 `user_id`）的 logger，日志即可按请求串联：
 
 ```go
-logger.C(ctx).Info("order created", "order_no", order.OrderNo)
+logger.C(ctx).Info("config published", "config_id", id)
 ```
+
+> 日志中间件对 `password` / `token` / `secret` / `authorization` / `credential` / `id_card` / `phone` 等敏感字段做了脱敏（含 `access_token`、`user_password` 这类子串变体），且查询串会整体处理——否则 `?username=x&password=y` 会原样落盘。
 
 ## 扩展指南
 
 ### 添加新的业务模块
 
-1. **定义模型** - `internal/model/xxx.go`（列表请求内嵌 `model.PageRequest`；金额字段用 `int64` 存分；实体上加 `ToResponse()`）
+以本项目的 `config-pack` 为例，一个完整模块是：
+
+1. **定义模型** - `internal/model/xxx.go`（列表请求内嵌 `model.PageRequest`；时间字段用 `int64` 存 Unix 秒；实体上加 `ToResponse()`）
 2. **创建 Data** - `internal/data/xxx.go`，包级函数，用 `connDb(ctx)` 取连接写 gorm 查询；只返回 gorm 原始错误，不 import `errcode`；更新用 `Select(白名单).Updates` 而不是 `Save`（`Save` 是全字段覆盖，并发下会丢更新）
 3. **创建 Service** - `internal/service/xxx.go`，包级函数，调 `data.Xxx`，用 `data.IsNotFound` / `data.IsDuplicate` 判定后翻译成 `errcode`，跨表写入用 `transaction.Do(ctx, ...)` 包住
 4. **创建 Controller** - `internal/controller/xxx.go`，包级函数，用 `bindJSON` / `bindQuery` 绑定参数（自带校验错误中文化与 413 识别），需要身份时开头调 `middleware.RequireUserID(c)`，只做绑定与响应
 5. **登记路由** - 在 `internal/router/router.go` 加一个 `registerXxx(v1, auth)` 并在 `registerAPIRoutes` 里调用一次
 6. **登记建表** - 在 `cmd/migrate/main.go` 的 models 列表里加上新实体
-7. **错误码** - 在 `pkg/errcode/` 按模块段位加新错误码
+7. **错误码** - 在 `pkg/errcode/errcode.go` 按模块段位加新错误码（当前段位：通用 10xxx、认证 20xxx、用户 30xxx、项目 50xxx、字段 60xxx、配置包 70xxx、配置 80xxx、规则与发布 90xxx）
 8. **健康检查** - 若引入了新的外部依赖，在 `internal/bootstrap/bootstrap.go` 中通过 `health.RegisterFunc("xxx", ...)` 注册，`/readyz` 会自动纳入
 9. **后台 goroutine** - 一律用 `safego.Go`，裸 `go func` 里的 panic 不会被 Recovery 中间件捕获，会直接终止进程
 
 合计：**4 个新文件（model / data / service / controller）+ 2 个登记点（router、migrate）**，没有接口、没有构造函数、没有装配文件。分层边界由 `test/layering_test.go` 扫 import 表守着。
+
+若还要在后台加页面：新建 `internal/web/assets/pages/xxx.json`，并在 `app_menu.js` 的 `window.APP_MENU` 里挂一个叶子节点。
 
 ### 添加新的中间件
 

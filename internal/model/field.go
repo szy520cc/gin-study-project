@@ -111,8 +111,11 @@ type FieldQueryRequest struct {
 
 // FieldResponse 字段响应
 type FieldResponse struct {
-	ID            uint64 `json:"id"`
-	ProjectID     string `json:"project_id"`
+	ID        uint64 `json:"id"`
+	ProjectID string `json:"project_id"`
+	// ProjectName 所属项目名称。project_id 存的是 project 表主键，直接展示是一串数字，
+	// 由 service 层按 project_id 批量回填成可读名称（ToResponse 不查库，保持无副作用）。
+	ProjectName   string `json:"project_name"`
 	Name          string `json:"name"`
 	Type          string `json:"type"`
 	TypeText      string `json:"type_text"`

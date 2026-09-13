@@ -43,7 +43,11 @@ func GetConfigPack(ctx context.Context, id uint64) (*model.ConfigPackResponse, e
 	if err != nil {
 		return nil, err
 	}
-	return c.ToResponse(), nil
+	resp := c.ToResponse()
+	if err := fillConfigPackProjectNames(ctx, []*model.ConfigPackResponse{resp}); err != nil {
+		return nil, err
+	}
+	return resp, nil
 }
 
 // UpdateConfigPack 更新配置包（仅 name/status/remark；logo 不可修改）。
@@ -86,6 +90,10 @@ func ListConfigPacks(ctx context.Context, req *model.ConfigPackListRequest) ([]*
 	res := make([]*model.ConfigPackResponse, 0, len(list))
 	for _, c := range list {
 		res = append(res, c.ToResponse())
+	}
+	// 回填项目名称：project_id 存的是主键编号，直接展示对运营不可读
+	if err := fillConfigPackProjectNames(ctx, res); err != nil {
+		return nil, 0, err
 	}
 	return res, total, nil
 }
