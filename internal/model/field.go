@@ -116,6 +116,7 @@ type FieldResponse struct {
 	// ProjectName 所属项目名称。project_id 存的是 project 表主键，直接展示是一串数字，
 	// 由 service 层按 project_id 批量回填成可读名称（ToResponse 不查库，保持无副作用）。
 	ProjectName   string `json:"project_name"`
+	ProjectLogo   string `json:"project_logo"`
 	Name          string `json:"name"`
 	Type          string `json:"type"`
 	TypeText      string `json:"type_text"`

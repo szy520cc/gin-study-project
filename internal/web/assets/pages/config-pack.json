@@ -17,7 +17,13 @@
       { "name": "project_name", "label": "项目名称", "width": 140 },
       { "name": "name", "label": "配置包名称" },
       { "name": "logo", "label": "配置包标识", "width": 150 },
-      { "name": "status_text", "label": "状态", "width": 90 },
+      {
+        "type": "tpl",
+        "name": "status",
+        "label": "状态",
+        "width": 90,
+        "tpl": "<span class='label label-${status == 1 ? \"success\" : \"danger\"}'>${status == 1 ? '生效' : '废弃'}</span>"
+      },
       { "name": "updated_user", "label": "最后编辑", "width": 100 },
       { "name": "updated_at_text", "label": "更新时间", "width": 170 },
       {
@@ -69,7 +75,7 @@
                     "name": "status",
                     "label": "状态",
                     "required": true,
-                    "options": "$frag:_frags/status-options.json"
+                    "options": "$frag:_frags/status-active-options.json"
                   },
                   { "type": "textarea", "name": "remark", "label": "备注", "maxLength": 2000 }
                 ]
@@ -109,7 +115,7 @@
           "name": "status",
           "label": "状态",
           "clearable": true,
-          "options": "$frag:_frags/status-options.json"
+          "options": "$frag:_frags/status-active-options.json"
         },
         {
           "type": "select",
@@ -152,17 +158,59 @@
                 "source": {
                   "method": "get",
                   "url": "/api/v1/projects/list?page=1&page_size=100",
-                  "adaptor": "return {options:(payload.data.items||[]).map(function(it){return {label:it.name, value:String(it.id)}})};"
+                  "adaptor": "var m=window.__projLogoMap=window.__projLogoMap||{};(payload.data.items||[]).forEach(function(it){m[String(it.id)]=it.logo;});return {options:(payload.data.items||[]).map(function(it){return {label:it.name+'（'+it.logo+'）', value:String(it.id)}})};"
+                },
+                "onEvent": {
+                  "change": {
+                    "actions": [
+                      {
+                        "actionType": "custom",
+                        "script": "(function(event){var m=window.__projLogoMap||{},pid=String(event.data&&event.data.project_id||''),lgo=m[pid];if(!lgo){return;}var pre=lgo+'.';var tail=String(event.data.logo_tail==null?'':event.data.logo_tail);var known=[],k;for(k in m){if(m[k]){known.push(m[k]+'.');}}for(var i=0;i<known.length;i++){if(tail.indexOf(known[i])===0){tail=tail.slice(known[i].length);break;}}tail=tail.replace(/^\\.+/,'');doAction({actionType:'setValue',componentId:'projPrefixAdd',ignoreError:true,args:{value:pre}});doAction({actionType:'setValue',componentId:'logoTailAdd',ignoreError:true,args:{value:tail}});doAction({actionType:'setValue',componentId:'logoFullAdd',ignoreError:true,args:{value:pre+tail}});})(event);"
+                      }
+                    ]
+                  }
                 }
               },
               { "type": "input-text", "name": "name", "label": "配置包名称", "required": true, "maxLength": 200 },
-              { "type": "input-text", "name": "logo", "label": "配置包标识", "required": true, "maxLength": 200, "placeholder": "同一项目下唯一，创建后不可修改" },
+              {
+                "type": "hidden",
+                "name": "_proj_prefix",
+                "id": "projPrefixAdd"
+              },
+              {
+                "type": "input-text",
+                "id": "logoTailAdd",
+                "name": "logo_tail",
+                "label": "配置包标识",
+                "required": true,
+                "maxLength": 200,
+                "prefix": "${_proj_prefix}",
+                "placeholder": "如 ec_risk_pack",
+                "description": "已自动带入所选「项目标识」作为前缀（只读，不可修改），只需填写其后的标识；如 ecommerce.ec_risk_pack 只需填 ec_risk_pack。",
+                "validations": { "matchRegexp": "^[a-z_][a-z0-9_]*$" },
+                "validationErrors": { "matchRegexp": "标识只能由小写字母、数字、下划线组成，且不能以数字开头" },
+                "onEvent": {
+                  "change": {
+                    "actions": [
+                      {
+                        "actionType": "custom",
+                        "script": "(function(event){var pre=String(event.data._proj_prefix||'');var tail=String(event.data.logo_tail==null?'':event.data.logo_tail);doAction({actionType:'setValue',componentId:'logoFullAdd',ignoreError:true,args:{value:pre+tail}});})(event);"
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "hidden",
+                "name": "logo",
+                "id": "logoFullAdd"
+              },
               {
                 "type": "select",
                 "name": "status",
                 "label": "状态",
-                "placeholder": "默认待审核",
-                "options": "$frag:_frags/status-options.json"
+                "placeholder": "请选择状态（默认生效）",
+                "options": "$frag:_frags/status-active-options.json"
               },
               { "type": "textarea", "name": "remark", "label": "备注", "maxLength": 2000 }
             ]

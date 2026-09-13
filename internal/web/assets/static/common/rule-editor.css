@@ -20,6 +20,7 @@
   --re-shadow-1:      0 1px 2px rgba(15, 23, 42, .04);
   --re-shadow-2:      0 4px 12px rgba(15, 23, 42, .08), 0 1px 2px rgba(15, 23, 42, .04);
   --re-shadow-3:      0 12px 40px rgba(15, 23, 42, .18), 0 2px 6px rgba(15, 23, 42, .08);
+  --re-guide:         rgba(15, 23, 42, .22);   /* 缩进参考虚线 */
 }
 
 /* ---------- 编辑器容器 ---------- */
@@ -66,9 +67,33 @@
 
 /* ---------- 行号区 + 编辑区（左右并排，行号不叠加在内容上） ---------- */
 .re-main {
+  position: relative;
   display: flex;
   align-items: stretch;
   background: var(--re-panel);
+}
+
+/* ---------- 缩进参考虚线（覆盖层：pointer-events:none，不影响编辑） ---------- */
+.re-guides {
+  position: absolute;
+  top: 0; bottom: 0;
+  left: 46px; right: 0;          /* 与 .re-editor 对齐（左侧行号列宽 46px） */
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 1;
+  /* 必须与 .re-editor 同字体：虚线的 left 用 ch 计算，
+     字体不一致（默认 UI 字体 vs 等宽）会让整列虚线偏移 */
+  font: 13px / 1.65 var(--re-font);
+}
+.re-guides-inner {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  will-change: transform;
+}
+.re-guide {
+  position: absolute;
+  width: 0;
+  border-left: 1px dashed var(--re-guide);
 }
 .re-gutter {
   flex: 0 0 46px;

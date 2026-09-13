@@ -37,6 +37,11 @@ func CreateField(ctx context.Context, username string, req *model.CreateFieldReq
 		status = model.FieldStatusActive
 	}
 
+	// 解析路径约束：必须以所属项目的「项目标识」开头（形如 logo.path）。
+	if err := validateFieldParsePath(ctx, req.ProjectID, strings.TrimSpace(req.ParsePath)); err != nil {
+		return nil, err
+	}
+
 	f := &model.Field{
 		ProjectID:    strings.TrimSpace(req.ProjectID),
 		Name:         strings.TrimSpace(req.Name),
@@ -75,8 +80,19 @@ func GetField(ctx context.Context, id uint64) (*model.FieldResponse, error) {
 
 // UpdateField 更新字段（整行编辑，default_value 同样做类型一致性与 JSON 校验）
 func UpdateField(ctx context.Context, id uint64, username string, req *model.UpdateFieldRequest) error {
-	if _, err := getField(ctx, id); err != nil {
+	existing, err := getField(ctx, id)
+	if err != nil {
 		return err
+	}
+
+	// 字段不允许更换所属项目：前端编辑时项目选择框已禁用，后端同样兜底。
+	if existing.ProjectID != strings.TrimSpace(req.ProjectID) {
+		return errcode.ErrInvalidParams.WithDetails("字段编辑不允许更换所属项目")
+	}
+
+	// 解析路径创建后不允许修改：该字段可能已被规则引用，修改会导致规则失效。
+	if existing.ParsePath != strings.TrimSpace(req.ParsePath) {
+		return errcode.ErrInvalidParams.WithDetails("字段编辑不允许修改解析路径")
 	}
 
 	canonical, err := normalizeDefaultValue(req.Type, req.DefaultValue)
@@ -87,6 +103,11 @@ func UpdateField(ctx context.Context, id uint64, username string, req *model.Upd
 	status := uint8(req.Status)
 	if status != model.FieldStatusActive && status != model.FieldStatusRetired {
 		return errcode.ErrInvalidParams.WithDetails("status 只能是 1(生效) 或 2(废弃)")
+	}
+
+	// 解析路径约束：必须以所属项目的「项目标识」开头（形如 logo.path）。
+	if err := validateFieldParsePath(ctx, req.ProjectID, strings.TrimSpace(req.ParsePath)); err != nil {
+		return err
 	}
 
 	upd := &model.Field{
@@ -213,4 +234,35 @@ func valueKindMatches(typ, val string) bool {
 		return valid && strings.HasPrefix(val, `{`)
 	}
 	return false
+}
+
+// validateFieldParsePath 校验解析路径约束：必须以所属项目的「项目标识」开头（形如 logo.path）。
+// project_id 存的是 project 表主键，需回查拿到 logo 后做前缀比对；
+// 后端兜底这道约束，避免前端被绕过时写入与项目标识不匹配的解析路径。
+func validateFieldParsePath(ctx context.Context, projectID, parsePath string) error {
+	prefix, err := projectLogoPrefix(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	if !strings.HasPrefix(parsePath, prefix) {
+		return errcode.ErrFieldParsePathPrefix.WithDetails(
+			"解析路径 %q 必须以项目标识 %q 开头（形如 %s...）", parsePath, strings.TrimSuffix(prefix, "."), prefix)
+	}
+	return nil
+}
+
+// projectLogoPrefix 按主键取项目标识，返回带点的前缀（如 ecommerce.）。
+func projectLogoPrefix(ctx context.Context, projectID string) (string, error) {
+	pid, err := strconv.ParseUint(strings.TrimSpace(projectID), 10, 64)
+	if err != nil {
+		return "", errcode.ErrInvalidParams.WithDetails("project_id 非法")
+	}
+	proj, err := data.GetProjectByID(ctx, pid)
+	if err != nil {
+		if data.IsNotFound(err) {
+			return "", errcode.ErrProjectNotFound
+		}
+		return "", err
+	}
+	return proj.Logo + ".", nil
 }

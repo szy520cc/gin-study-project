@@ -4,8 +4,6 @@ import (
 	"context"
 
 	"myproject/internal/model"
-
-	"gorm.io/gorm"
 )
 
 // CreateConfig 插入配置
@@ -22,22 +20,26 @@ func GetConfigByID(ctx context.Context, id uint64) (*model.Config, error) {
 	return &c, nil
 }
 
-// UpdateConfig 更新可编辑列（身份字段 logo/version/project_id/config_pack_id 不改）
+// UpdateConfig 更新可编辑列（身份字段 logo/version/project_id/config_pack_id 不改）。
+// is_latest 为 0 表示该字段在本次更新中不修改，避免把旧版本误标为最新。
 func UpdateConfig(ctx context.Context, id uint64, c *model.Config) (int64, error) {
+	updates := map[string]interface{}{
+		"name":         c.Name,
+		"type":         c.Type,
+		"status":       c.Status,
+		"remark":       c.Remark,
+		"updated_user": c.UpdatedUser,
+		"updated_at":   c.UpdatedAt,
+		"cut_num":      c.CutNum,
+		"cut_at":       c.CutAt,
+		"cut_version":  c.CutVersion,
+	}
+	if c.IsLatest != 0 {
+		updates["is_latest"] = c.IsLatest
+	}
 	res := connDb(ctx).Model(&model.Config{}).
 		Where("id = ?", id).
-		Updates(map[string]interface{}{
-			"name":         c.Name,
-			"type":         c.Type,
-			"status":       c.Status,
-			"is_latest":    c.IsLatest,
-			"remark":       c.Remark,
-			"updated_user": c.UpdatedUser,
-			"updated_at":   c.UpdatedAt,
-			"cut_num":      c.CutNum,
-			"cut_at":       c.CutAt,
-			"cut_version":  c.CutVersion,
-		})
+		Updates(updates)
 	return res.RowsAffected, res.Error
 }
 
@@ -60,40 +62,41 @@ func DeleteConfig(ctx context.Context, id uint64) error {
 	return connDb(ctx).Delete(&model.Config{}, id).Error
 }
 
-// MarkConfigNotLatest 把 is_latest 置为否（编辑生效版本 fork 新版本时，把老版本标记掉）。
-func MarkConfigNotLatest(ctx context.Context, id uint64) error {
+// EnsureOnlyLatest 把同 logo 下除了 id 以外的所有版本都置为 is_latest=2，
+// 保证每个配置（logo）只有一个最新版本。
+func EnsureOnlyLatest(ctx context.Context, logo string, id uint64) error {
 	return connDb(ctx).Model(&model.Config{}).
-		Where("id = ?", id).
+		Where("logo = ? AND id <> ?", logo, id).
 		Update("is_latest", model.ConfigLatestNo).Error
 }
 
-// ListConfigs 分页查询配置。projectID/configPackID/name/type/status/isLatest 均为可选条件
-func ListConfigs(ctx context.Context, projectID string, configPackID uint64, name, typ string, status, isLatest *uint8, page, pageSize int) ([]*model.Config, int64, error) {
-	query := func() *gorm.DB {
-		q := connDb(ctx).Model(&model.Config{})
-		if projectID != "" {
-			q = q.Where("project_id = ?", projectID)
-		}
-		if configPackID != 0 {
-			q = q.Where("config_pack_id = ?", configPackID)
-		}
-		if name != "" {
-			q = q.Where("name LIKE ?", "%"+name+"%")
-		}
-		if typ != "" {
-			q = q.Where("type = ?", typ)
-		}
-		if status != nil {
-			q = q.Where("status = ?", *status)
-		}
-		if isLatest != nil {
-			q = q.Where("is_latest = ?", *isLatest)
-		}
-		return q
+// ListConfigs 分页查询配置（按 logo 维度聚合，只取每个配置的最新版本）。
+// projectID/configPackID/name/type/status 均为可选条件。
+func ListConfigs(ctx context.Context, projectID string, configPackID uint64, name, typ string, status *uint8, page, pageSize int) ([]*model.Config, int64, error) {
+	db := connDb(ctx)
+
+	// 先按过滤条件拿到每个 logo 的最新记录 id（以自增 id 倒序为最新版本）。
+	sub := db.Model(&model.Config{}).Select("MAX(id) AS id").Group("logo")
+	if projectID != "" {
+		sub = sub.Where("project_id = ?", projectID)
+	}
+	if configPackID != 0 {
+		sub = sub.Where("config_pack_id = ?", configPackID)
+	}
+	if name != "" {
+		sub = sub.Where("name LIKE ?", "%"+name+"%")
+	}
+	if typ != "" {
+		sub = sub.Where("type = ?", typ)
+	}
+	if status != nil {
+		sub = sub.Where("status = ?", *status)
 	}
 
+	query := db.Model(&model.Config{}).Where("id IN (?)", sub)
+
 	var total int64
-	if err := query().Count(&total).Error; err != nil {
+	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 	if total == 0 {
@@ -101,7 +104,7 @@ func ListConfigs(ctx context.Context, projectID string, configPackID uint64, nam
 	}
 
 	var list []*model.Config
-	err := query().Order("id DESC").
+	err := query.Order("id DESC").
 		Offset((page - 1) * pageSize).Limit(pageSize).Find(&list).Error
 	if err != nil {
 		return nil, 0, err
@@ -143,6 +146,26 @@ func ActiveLogosAmong(ctx context.Context, logos []string) (map[string]struct{},
 	}
 	for _, l := range found {
 		out[l] = struct{}{}
+	}
+	return out, nil
+}
+
+// GetActiveConfigsAmong 批量取各 logo 的「线上版本（status=1）」整行，
+// 用于列表回填切流信息：切流时灰度标记写在线上版本行上，
+// 而列表按 logo 聚合展示的是最新版本（可能是待审核），切流信息需要从线上版本取。
+func GetActiveConfigsAmong(ctx context.Context, logos []string) (map[string]*model.Config, error) {
+	out := make(map[string]*model.Config, len(logos))
+	if len(logos) == 0 {
+		return out, nil
+	}
+	var list []*model.Config
+	if err := connDb(ctx).Model(&model.Config{}).
+		Where("logo IN ? AND status = ?", logos, model.ConfigStatusActive).
+		Find(&list).Error; err != nil {
+		return nil, err
+	}
+	for _, c := range list {
+		out[c.Logo] = c
 	}
 	return out, nil
 }

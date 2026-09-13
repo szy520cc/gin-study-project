@@ -19,7 +19,13 @@
       { "name": "type_text", "label": "类型", "width": 80 },
       { "name": "parse_path", "label": "解析路径", "width": 180 },
       { "name": "default_value", "label": "默认值配置", "width": 220 },
-      { "name": "status_text", "label": "状态", "width": 80 },
+      {
+        "type": "tpl",
+        "name": "status",
+        "label": "状态",
+        "width": 80,
+        "tpl": "<span class='label label-${status == 1 ? \"success\" : \"danger\"}'>${status == 1 ? '生效' : '废弃'}</span>"
+      },
       { "name": "updated_user", "label": "最后编辑", "width": 100 },
       { "name": "updated_at_text", "label": "更新时间", "width": 170 },
       {
@@ -39,7 +45,8 @@
                 "reload": "fieldCrud",
                 "initApi": {
                   "method": "get",
-                  "url": "/api/v1/fields/detail?id=${id}"
+                  "url": "/api/v1/fields/detail?id=${id}",
+                  "adaptor": "var d=payload.data||{};var logo=String(d.project_logo||'');var pre=logo?logo+'.':'';var full=String(d.parse_path||'');var tail=full;if(pre&&full.indexOf(pre)===0){tail=full.slice(pre.length);}return {status:payload.status,data:Object.assign({},d,{_proj_prefix:pre,parse_path_tail:tail}),msg:payload.msg};"
                 },
                 "api": {
                   "method": "post",
@@ -47,14 +54,19 @@
                 },
                 "body": [
                   {
+                    "type": "hidden",
+                    "name": "project_id"
+                  },
+                  {
                     "type": "select",
                     "name": "project_id",
                     "label": "所属项目",
                     "required": true,
+                    "disabled": true,
                     "source": {
                       "method": "get",
                       "url": "/api/v1/projects/list?page=1&page_size=100",
-                      "adaptor": "return {options:(payload.data.items||[]).map(function(it){return {label:it.name, value:String(it.id)}})};"
+                      "adaptor": "var m=window.__projLogoMap=window.__projLogoMap||{};(payload.data.items||[]).forEach(function(it){m[String(it.id)]=it.logo;});return {options:(payload.data.items||[]).map(function(it){return {label:it.name+'（'+it.logo+'）', value:String(it.id)}})};"
                     }
                   },
                   { "type": "input-text", "name": "name", "label": "字段名称", "required": true, "maxLength": 200 },
@@ -73,7 +85,30 @@
                     "placeholder": "如 {\"type\":\"int\",\"value\":0}，type 必须与字段类型一致",
                     "description": "JSON 格式：{\"type\":\"<与字段类型相同>\",\"value\":<默认值>}。整数只能填整数、浮点数填数字、字符串填\"\", 布尔填 true/false、数组填 []、对象填 {}"
                   },
-                  { "type": "input-text", "name": "parse_path", "label": "解析路径", "required": true, "maxLength": 500, "placeholder": "同一项目下唯一，如 user.age" },
+                  {
+                    "type": "hidden",
+                    "name": "_proj_prefix",
+                    "id": "projPrefixEdit"
+                  },
+                  {
+                    "type": "input-text",
+                    "id": "fieldTailEdit",
+                    "name": "parse_path_tail",
+                    "label": "解析路径",
+                    "required": true,
+                    "disabled": true,
+                    "maxLength": 500,
+                    "prefix": "${_proj_prefix}",
+                    "placeholder": "创建后不可修改",
+                    "description": "解析路径创建后不允许修改，避免已被规则引用导致配置失效。",
+                    "validations": { "matchRegexp": "^[^.\\s][^\\s]*$" },
+                    "validationErrors": { "matchRegexp": "路径段不能以点或空格开头，且不能包含空格" }
+                  },
+                  {
+                    "type": "hidden",
+                    "name": "parse_path",
+                    "id": "fieldFullPathEdit"
+                  },
                   {
                     "type": "select",
                     "name": "status",
@@ -137,7 +172,7 @@
           "source": {
             "method": "get",
             "url": "/api/v1/projects/list?page=1&page_size=100",
-            "adaptor": "return {options:(payload.data.items||[]).map(function(it){return {label:it.name, value:String(it.id)}})};"
+            "adaptor": "var m=window.__projLogoMap=window.__projLogoMap||{};(payload.data.items||[]).forEach(function(it){m[String(it.id)]=it.logo;});return {options:(payload.data.items||[]).map(function(it){return {label:it.name, value:String(it.id)}})};"
           }
         }
       ]
@@ -169,7 +204,17 @@
                 "source": {
                   "method": "get",
                   "url": "/api/v1/projects/list?page=1&page_size=100",
-                  "adaptor": "return {options:(payload.data.items||[]).map(function(it){return {label:it.name, value:String(it.id)}})};"
+                  "adaptor": "var m=window.__projLogoMap=window.__projLogoMap||{};(payload.data.items||[]).forEach(function(it){m[String(it.id)]=it.logo;});return {options:(payload.data.items||[]).map(function(it){return {label:it.name+'（'+it.logo+'）', value:String(it.id)}})};"
+                },
+                "onEvent": {
+                  "change": {
+                    "actions": [
+                      {
+                        "actionType": "custom",
+                        "script": "(function(event){var m=window.__projLogoMap||{},pid=String(event.data&&event.data.project_id||''),lgo=m[pid];if(!lgo){return;}var pre=lgo+'.';var tail=String(event.data.parse_path_tail==null?'':event.data.parse_path_tail);var known=[],k;for(k in m){if(m[k]){known.push(m[k]+'.');}}for(var i=0;i<known.length;i++){if(tail.indexOf(known[i])===0){tail=tail.slice(known[i].length);break;}}tail=tail.replace(/^\\.+/,'');doAction({actionType:'setValue',componentId:'projPrefixAdd',ignoreError:true,args:{value:pre}});doAction({actionType:'setValue',componentId:'fieldTailAdd',ignoreError:true,args:{value:tail}});doAction({actionType:'setValue',componentId:'fieldFullPathAdd',ignoreError:true,args:{value:pre+tail}});})(event);"
+                      }
+                    ]
+                  }
                 }
               },
               { "type": "input-text", "name": "name", "label": "字段名称", "required": true, "maxLength": 200 },
@@ -188,7 +233,39 @@
                 "placeholder": "如 {\"type\":\"int\",\"value\":0}，type 必须与字段类型一致",
                 "description": "JSON 格式：{\"type\":\"<与字段类型相同>\",\"value\":<默认值>}。整数只能填整数、浮点数填数字、字符串填\"\", 布尔填 true/false、数组填 []、对象填 {}"
               },
-              { "type": "input-text", "name": "parse_path", "label": "解析路径", "required": true, "maxLength": 500, "placeholder": "同一项目下唯一，如 user.age" },
+              {
+                "type": "hidden",
+                "name": "_proj_prefix",
+                "id": "projPrefixAdd"
+              },
+              {
+                "type": "input-text",
+                "id": "fieldTailAdd",
+                "name": "parse_path_tail",
+                "label": "解析路径",
+                "required": true,
+                "maxLength": 500,
+                "prefix": "${_proj_prefix}",
+                "placeholder": "如 transaction.id",
+                "description": "已自动带入所选「项目标识」作为前缀（只读，不可修改），只需填写其后的路径；同一项目下唯一，如 ecommerce.transaction.id 只需填 transaction.id。",
+                "validations": { "matchRegexp": "^[^.\\s][^\\s]*$" },
+                "validationErrors": { "matchRegexp": "路径段不能以点或空格开头，且不能包含空格" },
+                "onEvent": {
+                  "change": {
+                    "actions": [
+                      {
+                        "actionType": "custom",
+                        "script": "(function(event){var pre=String(event.data._proj_prefix||'');var tail=String(event.data.parse_path_tail==null?'':event.data.parse_path_tail);doAction({actionType:'setValue',componentId:'fieldFullPathAdd',ignoreError:true,args:{value:pre+tail}});})(event);"
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "hidden",
+                "name": "parse_path",
+                "id": "fieldFullPathAdd"
+              },
               {
                 "type": "select",
                 "name": "status",

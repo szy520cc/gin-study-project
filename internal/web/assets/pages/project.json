@@ -16,7 +16,13 @@
       { "name": "id", "label": "ID", "width": 70 },
       { "name": "name", "label": "项目名称" },
       { "name": "logo", "label": "项目标识" },
-      { "name": "status_text", "label": "状态", "width": 90 },
+      {
+        "type": "tpl",
+        "name": "status",
+        "label": "状态",
+        "width": 90,
+        "tpl": "<span class='label label-${status == 1 ? \"success\" : \"danger\"}'>${status == 1 ? '生效' : '废弃'}</span>"
+      },
       { "name": "created_user", "label": "创建人", "width": 110 },
       { "name": "updated_user", "label": "最后编辑", "width": 110 },
       { "name": "updated_at_text", "label": "更新时间", "width": 170 },

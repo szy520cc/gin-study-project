@@ -57,6 +57,11 @@ func Publish(ctx context.Context, configID uint64) (*model.ConfigResponse, error
 			"pack", pack, "logo", c.Logo, "version", c.Version, "err", err.Error())
 	}
 
+	// 发布成功后，该版本即为线上版本；统一校正 is_latest，确保一个 logo 只有一个最新版本。
+	if err := data.EnsureOnlyLatest(ctx, c.Logo, c.ID); err != nil {
+		logger.C(ctx).Warn("发布后校正 is_latest 失败", "logo", c.Logo, "id", c.ID, "err", err.Error())
+	}
+
 	// 回读最新状态返回
 	latest, err := getConfig(ctx, c.ID)
 	if err != nil {

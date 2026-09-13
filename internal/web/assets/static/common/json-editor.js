@@ -38,7 +38,7 @@
      ========================================================= */
   function parseState(text) {
     var s = (text == null ? '' : String(text)).trim();
-    if (!s) return { valid: true, error: '' };
+    if (!s) return { valid: false, error: '尚未填写' };
     try {
       JSON.parse(s);
       return { valid: true, error: '' };
@@ -110,8 +110,20 @@
       var line = lines[i];
       var m = /^[ \t]+/.exec(line);
       if (m) {
-        html += '<span class="jt-ind">' + esc(m[0]) + '</span>';
-        line = line.slice(m[0].length);
+        /* 行首空白按「一级缩进」拆成多个 span：每个 span 的左边线正好落在该级缩进的
+           起始列上，虚线因此天然对齐字符列（用 ch 换算像素会因字体回退而偏移）。
+           制表符按一级算。 */
+        var lead = m[0], seg = '', segs = [];
+        for (var j = 0; j < lead.length; j++) {
+          var ch = lead.charAt(j);
+          seg += ch;
+          if (ch === '\t' || seg.length >= INDENT.length) { segs.push(seg); seg = ''; }
+        }
+        if (seg) segs.push(seg);
+        for (var q = 0; q < segs.length; q++) {
+          html += '<span class="jt-ind">' + esc(segs[q]) + '</span>';
+        }
+        line = line.slice(lead.length);
       }
       html += hlLineTokens(line, state);
     }
@@ -211,16 +223,26 @@
     var histSoftRef = React.useRef(false);
     var histTick = React.useState(0);     // 只用来在历史栈变化时触发重渲染
     var bumpHist = histTick[1];
-    var statusState = React.useState({ valid: true, error: '' });
+    var statusState = React.useState(function () { return parseState(props.value); });
     var status = statusState[0];
     var setStatus = statusState[1];
 
     var disabled = !!props.disabled || !!props.static;
     var value = props.value == null ? '' : String(props.value);
 
+    /* 把文本「原样」写进可编辑区：换行显式还原成 <br>，其余走文本节点。
+       不能用 innerText：它是渲染语义，会丢尾随换行、规范化空白，
+       写进 DOM 的内容与代码里当字符串用的 text 不再一一对应，
+       按文本下标算出来的光标位置就会错位（回车时最明显）。 */
     function setHostText(host, text) {
       var next = text == null ? '' : String(text);
-      if ((host.innerText || '') !== next) host.innerText = next;
+      if (readText(host) === next) return;
+      while (host.firstChild) host.removeChild(host.firstChild);
+      var parts = next.split('\n');
+      for (var i = 0; i < parts.length; i++) {
+        if (i > 0) host.appendChild(document.createElement('br'));
+        if (parts[i]) host.appendChild(document.createTextNode(parts[i]));
+      }
     }
     function refreshStatus(text) {
       var r = parseState(text);
@@ -323,6 +345,8 @@
         setCaret(host, caret);
       }
       noteCaret();
+      /* 强制重渲染：让工具栏按钮（toolbarRight）拿到替换后的最新文本 */
+      bumpHist(function (n) { return n + 1; });
     }
 
     /* 外部值（回显 / initApi / 重置）同步进编辑区；忽略自己刚抛出去的值，避免光标跳动 */
@@ -377,6 +401,9 @@
       renderHl();
       emit(readNow());
       noteCaret();
+      /* 连续输入会让 pushHistory 合并、不重渲染；工具栏右侧按钮（toolbarRight）依赖本次渲染
+         才能拿到最新值，所以这里显式触发一次重渲染，保证按钮点击时数据是当前内容。 */
+      bumpHist(function (n) { return n + 1; });
     }
 
     /* ---------------- 智能编辑（对齐 Monaco JSON 的默认手感） ---------------- */
@@ -517,11 +544,15 @@
       var host = hostRef.current;
       if (!host) return;
       var cur = readNow();
-      if (!parseState(cur).valid || !cur.trim()) return;
-      try {
-        var p = toPretty(cur);
-        if (p !== cur) applyText(p, null);
-      } catch (e) { /* 忽略：不改动原文 */ }
+      if (parseState(cur).valid && cur.trim()) {
+        try {
+          var p = toPretty(cur);
+          if (p !== cur) { applyText(p, null); return; }
+        } catch (e) { /* 忽略：不改动原文 */ }
+      }
+      /* 离开编辑区时显式提交一次当前内容：点工具栏按钮会先触发 blur，
+         这样按钮读到的表单数据必然是最新（避免最后输入的字符没进数据域）。 */
+      emit(cur);
     }
 
     function applyTransform(fn) {
@@ -559,6 +590,26 @@
     var canUndo = undoRef.current.length > 0;
     var canRedo = redoRef.current.length > 0;
 
+    /* 把 schema 里 ${test_data} / ${ test_data } 这类"纯变量引用"替换成当前编辑区文本。
+       原因：props.render 渲染出的子树，其数据域是本次渲染时的快照；连续输入时表单数据
+       会比输入晚一拍，导致首次点击「试运行」用到旧值（接口报 data 不是对象字符串）。
+       直接绑定当前编辑区文本，保证"所见即所发"。 */
+    function bindLiveValue(schema) {
+      var live = value || '';
+      try { if (hostRef.current) live = readNow(); } catch (e) { /* 保持 fallback */ }
+      function walk(node) {
+        if (Array.isArray(node)) return node.map(walk);
+        if (node && typeof node === 'object') {
+          var out = {};
+          for (var k in node) { if (Object.prototype.hasOwnProperty.call(node, k)) out[k] = walk(node[k]); }
+          return out;
+        }
+        if (typeof node === 'string' && /^\$\{\s*test_data\s*\}$/.test(node)) return live;
+        return node;
+      }
+      return walk(schema);
+    }
+
     return React.createElement('div', {
       className: 'je-wrap'
         + (disabled ? ' is-disabled' : '')
@@ -571,7 +622,14 @@
         toolBtn('格式化', toPretty),
         toolBtn('压缩', toCompact),
         React.createElement('span', { className: 'je-error' },
-          status.valid ? '✓ 合法 JSON' : ('✕ ' + status.error))
+          status.valid ? '✓ 合法 JSON' : ('✕ ' + status.error)),
+        /* 工具栏右侧扩展位：schema 里传 toolbarRight（amis 子 schema），用 amis 的 props.render 渲染。
+           JSON 为空或非法时把 disabled 透传下去，避免「试运行」在空内容时可点。 */
+        (props.toolbarRight && typeof props.render === 'function')
+          ? props.render('toolbarRight', bindLiveValue(
+              Object.assign({}, props.toolbarRight, { disabled: !status.valid })
+            ))
+          : null
       ),
       React.createElement('div', { className: 'je-main' },
         React.createElement('div', { className: 'je-gutter', 'aria-hidden': 'true' },

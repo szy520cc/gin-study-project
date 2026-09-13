@@ -79,8 +79,11 @@
         if (d && Array.isArray(d.list)) {
           d = { items: d.list, total: d.total, count: d.total };
         }
-        // 写操作（增/改/删）成功时给出明确的全局提示，避免 amis 默认提示一闪而过
-        if (code === 0 && (method === 'POST' || method === 'PUT' || method === 'DELETE')) {
+        // 写操作（增/改/删）成功时给出明确的全局提示，避免 amis 默认提示一闪而过。
+        // 例外：自带成功文案的接口（如试运行 actionType ajax 配了 messages.success）
+        // 不再叠加全局「操作成功」，否则同一次请求会弹两个提示。
+        var silentToast = ['/configs/testrun'].some(function (p) { return url.indexOf(p) >= 0; });
+        if (code === 0 && !silentToast && (method === 'POST' || method === 'PUT' || method === 'DELETE')) {
           appToast('操作成功');
         }
 

@@ -228,6 +228,17 @@ func registerFallbackRoutes(r *gin.Engine) {
 //	/admin/login        → login.html（独立登录页，跳过 amis 渲染壳）
 //	/admin/static/...   → SDK / 主题 css（go:embed 一并打入二进制）
 //	/admin/pages/*.json → Amis schema 文件（直接吐 JSON）
+// noCache 让入口 HTML 与页面 schema 每次刷新都必须回源。
+//
+// 这两类文件体积很小、请求极少，但一旦被浏览器启发式缓存，就会出现
+// 「改了前端却一直看到旧界面」：静态资源有 ?v= 版本号可破缓存，HTML/schema 没有。
+// 大体积的 SDK / 主题 CSS 仍然走 /admin/static 的 1h 缓存，不受影响。
+func noCache(c *gin.Context) {
+	c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
+	c.Header("Pragma", "no-cache")
+	c.Header("Expires", "0")
+}
+
 func registerAdminUI(r *gin.Engine) {
 	// /admin/login 必须单独存在：amis 的 init 逻辑会执行登录 API，
 	// 在登录前没有 token，登录页不能依赖 amis-renderer 自身的初始化流程，
@@ -238,6 +249,7 @@ func registerAdminUI(r *gin.Engine) {
 			c.String(500, "login page missing: %v", err)
 			return
 		}
+		noCache(c)
 		c.Data(200, "text/html; charset=utf-8", data)
 	})
 
@@ -248,6 +260,7 @@ func registerAdminUI(r *gin.Engine) {
 			c.String(500, "admin index missing: %v", err)
 			return
 		}
+		noCache(c)
 		c.Data(200, "text/html; charset=utf-8", data)
 	})
 
@@ -261,6 +274,7 @@ func registerAdminUI(r *gin.Engine) {
 			c.String(404, "schema not found: %s", name)
 			return
 		}
+		noCache(c)
 		c.Data(200, "application/json; charset=utf-8", data)
 	})
 

@@ -201,6 +201,14 @@
     mainEl.className = 're-main';
     mainEl.appendChild(gutterEl);
     mainEl.appendChild(ed);
+    /* 缩进参考虚线覆盖层：绝对定位盖在编辑区上，pointer-events:none，纯装饰不影响编辑 */
+    var guidesEl = document.createElement('div');
+    guidesEl.className = 're-guides';
+    guidesEl.setAttribute('aria-hidden', 'true');
+    var guidesInner = document.createElement('div');
+    guidesInner.className = 're-guides-inner';
+    guidesEl.appendChild(guidesInner);
+    mainEl.appendChild(guidesEl);
 
     // 下拉面板：搜索框 + 结果列表（挂到 body，避免被 .re-wrap 的 overflow:hidden 裁剪）
     var dd = document.createElement('div');
@@ -249,17 +257,22 @@
     }
 
     /* -------- 行号（contenteditable 版：按真实视觉行定位，不叠加、不漂移） -------- */
-    // 内容 offset 处的可视 y（相对编辑区顶部，含滚动）
+    /* 内容 offset 处的可视 y（相对编辑区顶部，含滚动）。
+       注意：绝不能往编辑区里插临时节点来量位置——回车后光标常停在新行行首，
+       插入/移除探针会被 Chrome 的实时选区一起带走（表现为「光标乱跑」）。
+       collapsed range 的几何在 Chrome 可直接用；退化时按行高估算。 */
     function contentYAt(ed2, offset) {
       var edRect = ed2.getBoundingClientRect();
       var padTop = parseFloat(getComputedStyle(ed2).paddingTop) || 0;
-      var rng = rangeForOffsets(ed2, offset, offset);
-      var sp = document.createElement('span');
-      sp.textContent = '\u200B';
-      try { rng.insertNode(sp); } catch (e) { return null; }
-      var r = sp.getBoundingClientRect();
-      sp.parentNode.removeChild(sp);
-      return r.top - edRect.top - padTop + ed2.scrollTop;
+      var lh = parseFloat(getComputedStyle(ed2).lineHeight) || 21;
+      try {
+        var rect = rangeForOffsets(ed2, offset, offset).getBoundingClientRect();
+        if (rect && (rect.top || rect.height)) {
+          return rect.top - edRect.top - padTop + ed2.scrollTop;
+        }
+      } catch (e) { /* 落到下面的估算 */ }
+      var before = (ed2.textContent || '').slice(0, offset);
+      return (before.split('\n').length - 1) * lh;
     }
     function updateGutter() {
       if (!gutterInner || !ed) return;
@@ -269,19 +282,46 @@
         if (txt.charAt(i) === '\n') starts.push(i + 1);
       }
       var padTop = parseFloat(getComputedStyle(ed).paddingTop) || 0;
-      var html = '', maxY = 0;
-      for (var k = 0; k < starts.length; k++) {
-        var y = contentYAt(ed, starts[k]);
+      var lh = parseFloat(getComputedStyle(ed).lineHeight) || 21;
+      /* 先算每行行首的 y（含滚动），行号与缩进虚线共用 */
+      var ys = [], k, y;
+      for (k = 0; k < starts.length; k++) ys[k] = contentYAt(ed, starts[k]);
+      var html = '', maxY = 0, ghtml = '';
+      for (k = 0; k < starts.length; k++) {
+        y = ys[k];
         if (y === null) continue;
         if (y > maxY) maxY = y;
-        html += '<span class="re-gutter-num" style="top:' + (padTop + y).toFixed(1) + 'px">' + (k + 1) + '</span>';
+        var top = (padTop + y).toFixed(1);
+        html += '<span class="re-gutter-num" style="top:' + top + 'px">' + (k + 1) + '</span>';
+        /* 缩进参考虚线：行首空白每 2 个空格（一级缩进）画一条竖虚线，与 JSON 编辑器一致 */
+        var lineEnd = (k + 1 < starts.length) ? starts[k + 1] - 1 : txt.length;
+        var lead = (/^[ \t]*/.exec(txt.slice(starts[k], lineEnd)) || [''])[0];
+        var depth = Math.floor(lead.replace(/\t/g, '  ').length / 2);
+        if (depth > 0) {
+          var y2 = (k + 1 < ys.length && ys[k + 1] != null) ? ys[k + 1] : (y + lh);
+          /* 每段只画「本行」的高度，并留出 5px 行距：不留缝时相邻行的虚线会首尾
+             相接，连成一条上下贯通、看起来「超出首行/尾行」的长线（JSON 编辑器画在
+             行内盒上天然带行距，所以没这问题）。同时对异常大的 y2-y 设上限，
+             避免量位失真时画出一根长线。 */
+          var seg = Math.max(lh, y2 - y);
+          if (seg > lh * 8) seg = lh;
+          var hh = Math.max(4, seg - 5).toFixed(1);
+          for (var L = 1; L <= depth; L++) {
+            ghtml += '<span class="re-guide" style="left:calc(14px + ' + (2 * (L - 1)) + 'ch);top:' + top + 'px;height:' + hh + 'px"></span>';
+          }
+        }
       }
       gutterInner.innerHTML = html;
       gutterInner.style.height = (maxY + 60) + 'px';
       gutterSyncScroll();
+      if (guidesInner) guidesInner.innerHTML = ghtml;
+      guidesSyncScroll();
     }
     function gutterSyncScroll() {
       if (gutterInner) gutterInner.style.transform = 'translateY(' + (-ed.scrollTop) + 'px)';
+    }
+    function guidesSyncScroll() {
+      if (guidesInner) guidesInner.style.transform = 'translateY(' + (-ed.scrollTop) + 'px)';
     }
     var gutterRaf = 0;
     function scheduleGutter() {
@@ -331,19 +371,16 @@
       if (cur && cur.scrollIntoView) { try { cur.scrollIntoView({ block: 'nearest' }); } catch (e) {} }
     }
 
-    /* 测光标真实视口位置：contenteditable collapsed range 几何为 0，
-       临时插入零宽 span 才能拿到像素坐标 */
+    /* 测光标真实视口位置：直接取 range 几何，不往编辑区插零宽探针
+       （插/删节点会扰动 Chrome 的实时选区，也是「回车后光标乱跑」的来源之一）。 */
     function getCaretRect() {
       var sel = window.getSelection();
       if (!sel || !sel.rangeCount) return null;
       var range = sel.getRangeAt(0);
-      if (!range.collapsed) return range.getBoundingClientRect();
-      var span = document.createElement('span');
-      span.textContent = '\u200B';
-      range.insertNode(span);
-      var rect = span.getBoundingClientRect();
-      span.parentNode.removeChild(span);
-      return rect;
+      var rect = range.getBoundingClientRect();
+      if (rect && (rect.left || rect.top)) return rect;
+      var rects = range.getClientRects();   // 退化时取选区首个矩形
+      return (rects && rects.length) ? rects[0] : rect;
     }
     function ddPosition() {
       var left, top;
@@ -436,6 +473,19 @@
       var sel = window.getSelection();
       if (!sel || !sel.rangeCount) return;
       var range = sel.getRangeAt(0);
+      /* 光标可能落在字段胶囊内部（胶囊是普通 inline span）。胶囊是原子，
+         往里插文本会把胶囊内容截断、光标也随之跑偏；先把落点挪到胶囊外。 */
+      var chip = null, n = range.startContainer;
+      while (n && n !== ed) {
+        if (n.nodeType === 1 && n.classList && n.classList.contains('re-field')) { chip = n; break; }
+        n = n.parentNode;
+      }
+      if (chip) {
+        var nr = document.createRange();
+        nr.setStartAfter(chip);
+        nr.collapse(true);
+        range = nr;
+      }
       range.deleteContents();
       var node = document.createTextNode(str);
       range.insertNode(node);
@@ -444,6 +494,16 @@
       sel.removeAllRanges();
       sel.addRange(range);
       commit();
+    }
+
+    /* 回车：沿用当前行的缩进（与 JSON 编辑器的 doEnter 一致）。
+       只插裸 \n 的话，新行没有任何行首空白 → 缩进虚线整段消失，
+       看起来就是「回车后虚线没画对」。 */
+    function insertNewline() {
+      var before = caretBeforeText(ed);
+      var lineStart = before.lastIndexOf('\n') + 1;
+      var indent = (/^[ \t]*/.exec(before.slice(lineStart)) || [''])[0];
+      insertText('\n' + indent);
     }
 
     /* -------- 事件 -------- */
@@ -481,7 +541,7 @@
       }
       if (e.key === 'Enter') {
         e.preventDefault();
-        insertText('\n');
+        insertNewline();
         return;
       }
     }
@@ -516,7 +576,7 @@
 
     ed.addEventListener('input', onInput);
     ed.addEventListener('keydown', onKeyDown);
-    ed.addEventListener('scroll', gutterSyncScroll);
+    ed.addEventListener('scroll', function () { gutterSyncScroll(); guidesSyncScroll(); });
     ed.addEventListener('compositionstart', function () { st.composing = true; });
     ed.addEventListener('compositionend', function () { st.composing = false; commit(); });
     /* 编辑区为 contenteditable="true"（为绕开 amis 的方向键拦截），

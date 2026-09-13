@@ -33,11 +33,11 @@ type ConfigPack struct {
 // TableName 表名（DDL 表名 config_pack）
 func (ConfigPack) TableName() string { return "config_pack" }
 
-// 配置包状态（0=待审核 是合法业务状态，不是空值）
+// 配置包状态（参考字段管理：1=生效 2=废弃）
 const (
-	ConfigPackStatusPending uint8 = 0 // 待审核
+	ConfigPackStatusPending uint8 = 0 // 待审核（历史兼容，不再使用）
 	ConfigPackStatusActive  uint8 = 1 // 生效
-	ConfigPackStatusOffline uint8 = 2 // 下线
+	ConfigPackStatusOffline uint8 = 2 // 废弃（与字段管理保持一致）
 )
 
 // ConfigPackStatusText 状态文案
@@ -48,7 +48,7 @@ func ConfigPackStatusText(status uint8) string {
 	case ConfigPackStatusActive:
 		return "生效"
 	case ConfigPackStatusOffline:
-		return "下线"
+		return "废弃"
 	default:
 		return "未知"
 	}
@@ -59,7 +59,7 @@ type CreateConfigPackRequest struct {
 	ProjectID string `json:"project_id" binding:"required,max=100"`
 	Name      string `json:"name" binding:"required,max=200"`
 	Logo      string `json:"logo" binding:"required,max=200"`
-	Status    uint8  `json:"status" binding:"omitempty,oneof=0 1 2"`
+	Status    uint8  `json:"status" binding:"omitempty,oneof=1 2"`
 	Remark    string `json:"remark" binding:"max=2000"`
 }
 
@@ -68,8 +68,8 @@ type CreateConfigPackRequest struct {
 type UpdateConfigPackRequest struct {
 	ID     uint64 `json:"id" binding:"required"`
 	Name   string `json:"name" binding:"required,max=200"`
-	Status uint8  `json:"status" binding:"omitempty,oneof=0 1 2"`
-	Remark string `json:"remark" binding:"max=2000"`
+	Status uint8  `json:"status" binding:"omitempty,oneof=1 2"`
+	Remark string `json:"remark" binding:"max:2000"`
 }
 
 // DeleteConfigPackRequest 删除配置包请求

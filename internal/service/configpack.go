@@ -12,15 +12,28 @@ import (
 
 // CreateConfigPack 创建配置包。
 // logo 创建后不可改；logo+project 组合唯一，冲突报业务错误。
-// status 未传时默认 0（待审核）。
+// status 未传时默认 1（生效），仅允许 1（生效）/2（废弃）。
 func CreateConfigPack(ctx context.Context, username string, req *model.CreateConfigPackRequest) (*model.ConfigPackResponse, error) {
+	// 配置包标识必须以所属项目的「项目标识」开头（形如 ecommerce.ec_risk_pack）。
+	if err := validateConfigPackLogo(ctx, req.ProjectID, strings.TrimSpace(req.Logo)); err != nil {
+		return nil, err
+	}
+
+	status := req.Status
+	if status == 0 {
+		status = model.ConfigPackStatusActive
+	}
+	if status != model.ConfigPackStatusActive && status != model.ConfigPackStatusOffline {
+		return nil, errcode.ErrInvalidParams.WithDetails("status 只能是 1(生效) 或 2(废弃)")
+	}
+
 	now := time.Now().Unix()
 
 	c := &model.ConfigPack{
 		ProjectID:   strings.TrimSpace(req.ProjectID),
 		Name:        strings.TrimSpace(req.Name),
 		Logo:        strings.TrimSpace(req.Logo),
-		Status:      req.Status, // 0 即待审核，是合法业务状态
+		Status:      status,
 		Remark:      strings.TrimSpace(req.Remark),
 		CreatedUser: username,
 		UpdatedUser: username,
@@ -56,9 +69,14 @@ func UpdateConfigPack(ctx context.Context, id uint64, username string, req *mode
 		return err
 	}
 
+	status := req.Status
+	if status != model.ConfigPackStatusActive && status != model.ConfigPackStatusOffline {
+		return errcode.ErrInvalidParams.WithDetails("status 只能是 1(生效) 或 2(废弃)")
+	}
+
 	upd := &model.ConfigPack{
 		Name:        strings.TrimSpace(req.Name),
-		Status:      req.Status,
+		Status:      status,
 		Remark:      strings.TrimSpace(req.Remark),
 		UpdatedUser: username,
 		UpdatedAt:   time.Now().Unix(),
@@ -107,4 +125,17 @@ func getConfigPack(ctx context.Context, id uint64) (*model.ConfigPack, error) {
 		return nil, err
 	}
 	return c, nil
+}
+
+// validateConfigPackLogo 校验配置包标识必须以所属项目的「项目标识」开头（形如 ecommerce.ec_risk_pack）。
+func validateConfigPackLogo(ctx context.Context, projectID, logo string) error {
+	prefix, err := projectLogoPrefix(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	if !strings.HasPrefix(logo, prefix) {
+		return errcode.ErrConfigPackLogoPrefix.WithDetails(
+			"配置包标识 %q 必须以项目标识 %q 开头（形如 %s...）", logo, strings.TrimSuffix(prefix, "."), prefix)
+	}
+	return nil
 }

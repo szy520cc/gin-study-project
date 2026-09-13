@@ -20,12 +20,18 @@ import (
 // 不查库），一旦让它查库，任何一次序列化都会隐式产生 SQL；名称回填属于「组装响应」
 // 的业务动作，由调用方显式决定要不要查，边界才清楚。
 
-// projectNameMap 批量查项目名称，返回 project.id → name。
+// projectInfo 项目回填信息（名称 + 项目标识）。
+type projectInfo struct {
+	Name string
+	Logo string
+}
+
+// projectInfoMap 批量查项目信息，返回 project.id → {Name, Logo}。
 //
 // 入参是各表里存的项目 ID（字符串形式，如 "48"）。非数字、0 等脏值直接忽略：
-// 项目被删除后历史数据里的 project_id 会指向不存在的行，此时名称回填为空即可，
+// 项目被删除后历史数据里的 project_id 会指向不存在的行，此时回填为空即可，
 // 不该让整个列表报错。
-func projectNameMap(ctx context.Context, ids []string) (map[uint64]string, error) {
+func projectInfoMap(ctx context.Context, ids []string) (map[uint64]projectInfo, error) {
 	uniq := make([]uint64, 0, len(ids))
 	seen := make(map[uint64]struct{}, len(ids))
 	for _, s := range ids {
@@ -40,27 +46,49 @@ func projectNameMap(ctx context.Context, ids []string) (map[uint64]string, error
 		uniq = append(uniq, id)
 	}
 	if len(uniq) == 0 {
-		return map[uint64]string{}, nil
+		return map[uint64]projectInfo{}, nil
 	}
 
 	list, err := data.GetProjectsByIDs(ctx, uniq)
 	if err != nil {
 		return nil, err
 	}
-	m := make(map[uint64]string, len(list))
+	m := make(map[uint64]projectInfo, len(list))
 	for _, p := range list {
-		m[p.ID] = p.Name
+		m[p.ID] = projectInfo{Name: p.Name, Logo: p.Logo}
 	}
 	return m, nil
 }
 
-// lookupProjectName 从名称表里取项目名称，ID 非法或项目已删时返回空串。
+// projectNameMap 批量查项目名称，返回 project.id → name。
+func projectNameMap(ctx context.Context, ids []string) (map[uint64]string, error) {
+	info, err := projectInfoMap(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	m := make(map[uint64]string, len(info))
+	for id, v := range info {
+		m[id] = v.Name
+	}
+	return m, nil
+}
+
+// lookupProjectName 从信息表里取项目名称，ID 非法或项目已删时返回空串。
 func lookupProjectName(m map[uint64]string, projectID string) string {
 	id, err := strconv.ParseUint(strings.TrimSpace(projectID), 10, 64)
 	if err != nil {
 		return ""
 	}
 	return m[id]
+}
+
+// lookupProjectLogo 从信息表里取项目标识，ID 非法或项目已删时返回空串。
+func lookupProjectLogo(m map[uint64]projectInfo, projectID string) string {
+	id, err := strconv.ParseUint(strings.TrimSpace(projectID), 10, 64)
+	if err != nil {
+		return ""
+	}
+	return m[id].Logo
 }
 
 // configPackNameMap 批量查配置包名称，返回 config_pack.id → name。
@@ -92,7 +120,7 @@ func configPackNameMap(ctx context.Context, ids []uint64) (map[uint64]string, er
 	return m, nil
 }
 
-// fillFieldProjectNames 给字段响应回填项目名称（列表/详情共用）。
+// fillFieldProjectNames 给字段响应回填项目名称与项目标识（列表/详情共用）。
 func fillFieldProjectNames(ctx context.Context, res []*model.FieldResponse) error {
 	if len(res) == 0 {
 		return nil
@@ -101,12 +129,17 @@ func fillFieldProjectNames(ctx context.Context, res []*model.FieldResponse) erro
 	for _, r := range res {
 		ids = append(ids, r.ProjectID)
 	}
-	m, err := projectNameMap(ctx, ids)
+	m, err := projectInfoMap(ctx, ids)
 	if err != nil {
 		return err
 	}
+	nameMap := make(map[uint64]string, len(m))
+	for id, info := range m {
+		nameMap[id] = info.Name
+	}
 	for _, r := range res {
-		r.ProjectName = lookupProjectName(m, r.ProjectID)
+		r.ProjectName = lookupProjectName(nameMap, r.ProjectID)
+		r.ProjectLogo = lookupProjectLogo(m, r.ProjectID)
 	}
 	return nil
 }
@@ -192,6 +225,39 @@ func fillConfigFlags(ctx context.Context, res []*model.ConfigResponse) error {
 	for _, r := range res {
 		_, r.HasActiveVersion = activeLogos[r.Logo]
 		_, r.RuleReady = ruleIDs[r.ID]
+	}
+	return nil
+}
+
+// fillConfigCutInfo 给列表/详情响应回填「切流信息」。
+//
+// 背景：切流时灰度标记（cut_num/cut_version/cut_at/cut_by）写在同 logo 的「线上版本（status=1）」
+// 行上（切流 API 的设计如此）。而列表按 logo 聚合展示的是「最新版本」（可能是待审核的新版本），
+// 它自己没有切流数据。所以这里统一从线上版本取切流字段回填，保证列表能正确显示切流进度。
+func fillConfigCutInfo(ctx context.Context, res []*model.ConfigResponse) error {
+	if len(res) == 0 {
+		return nil
+	}
+	logos := make([]string, 0, len(res))
+	for _, r := range res {
+		logos = append(logos, r.Logo)
+	}
+
+	activeMap, err := data.GetActiveConfigsAmong(ctx, logos)
+	if err != nil {
+		return err
+	}
+
+	for _, r := range res {
+		active, ok := activeMap[r.Logo]
+		if !ok {
+			continue
+		}
+		r.CutNum = active.CutNum
+		r.CutVersion = active.CutVersion
+		r.CutAt = active.CutAt
+		r.CutAtText = model.FormatUnix(active.CutAt)
+		r.CutBy = active.CutBy
 	}
 	return nil
 }

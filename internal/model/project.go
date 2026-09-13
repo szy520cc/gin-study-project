@@ -129,3 +129,6 @@ func formatUnix(ts int64) string {
 	}
 	return time.Unix(ts, 0).Format("2006-01-02 15:04:05")
 }
+
+// FormatUnix 导出版：供 service 层回填响应字段（如切流时间）
+func FormatUnix(ts int64) string { return formatUnix(ts) }

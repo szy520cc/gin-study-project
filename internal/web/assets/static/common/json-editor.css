@@ -225,13 +225,11 @@
 .jt-b2    { color: var(--je-b2); }
 
 /* ---------- 缩进参考虚线 ----------
-   行首空白单独包一层：每 2ch（一级缩进）画一条竖向虚线，
-   行有多深就画几条，正好对应 JSON 的层级。 */
+   行首空白按「一级缩进」拆成多个 span，每个 span 用左侧内阴影画一条竖线：
+   线的 x 就是该级缩进的起始列，天然与字符列对齐，不依赖 ch 的像素换算。
+   （行与行之间的自然空隙让竖线呈虚线感。） */
 .jt-ind {
-  background-image: radial-gradient(circle, var(--je-guide) 0.7px, transparent 1.1px);
-  background-size: 2ch 6px;
-  background-position: -1ch 0;
-  background-repeat: repeat;
+  box-shadow: inset 1px 0 0 var(--je-guide);
 }
 
 /* ---------- 深色模式 ---------- */

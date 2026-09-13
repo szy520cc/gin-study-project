@@ -255,7 +255,8 @@ func forkConfig(ctx context.Context, old *model.Config, username string, now int
 	if err := data.CreateConfig(ctx, &nc); err != nil {
 		return nil, err
 	}
-	if err := data.MarkConfigNotLatest(ctx, old.ID); err != nil {
+	// 把老版本（以及可能存在的其它旧版本）全部置为非最新，保证一个 logo 只有一个最新版本。
+	if err := data.EnsureOnlyLatest(ctx, old.Logo, nc.ID); err != nil {
 		return nil, err
 	}
 	return &nc, nil

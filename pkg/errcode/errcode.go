@@ -159,12 +159,14 @@ var (
 	ErrFieldTypeInvalid         = New(60003, "字段类型不合法", http.StatusBadRequest)
 	ErrFieldDefaultValueInvalid = New(60004, "字段默认值不合法", http.StatusBadRequest)
 	ErrFieldDefaultTypeMismatch = New(60005, "字段默认值类型与字段类型不一致", http.StatusBadRequest)
+	ErrFieldParsePathPrefix     = New(60006, "解析路径必须以项目标识开头", http.StatusBadRequest)
 )
 
 // 配置包相关错误
 var (
-	ErrConfigPackNotFound   = New(70001, "配置包不存在", http.StatusNotFound)
-	ErrConfigPackLogoExists = New(70002, "配置包标识已存在", http.StatusBadRequest)
+	ErrConfigPackNotFound     = New(70001, "配置包不存在", http.StatusNotFound)
+	ErrConfigPackLogoExists   = New(70002, "配置包标识已存在", http.StatusBadRequest)
+	ErrConfigPackLogoPrefix   = New(70003, "配置包标识必须以项目标识开头", http.StatusBadRequest)
 )
 
 // 配置数据相关错误
