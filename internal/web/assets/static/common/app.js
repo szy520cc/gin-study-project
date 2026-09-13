@@ -704,12 +704,27 @@
       localStorage.setItem('sidebar_collapsed', document.body.classList.contains('sidebar-collapsed') ? '1' : '0');
     });
     if (localStorage.getItem('sidebar_collapsed') === '1') document.body.classList.add('sidebar-collapsed');
-    // 全屏
+    // 全屏按钮：图标随状态切换，并响应 ESC/系统退出全屏
     var fsBtn = document.getElementById('fullscreenBtn');
+    var fsIcon = document.getElementById('fullscreenIcon');
+    function updateFullscreenIcon() {
+      if (!fsIcon) return;
+      if (document.fullscreenElement) {
+        fsIcon.className = 'fa-solid fa-compress';
+        fsBtn.setAttribute('title', '退出全屏');
+        fsBtn.setAttribute('aria-label', '退出全屏');
+      } else {
+        fsIcon.className = 'fa-solid fa-expand';
+        fsBtn.setAttribute('title', '全屏');
+        fsBtn.setAttribute('aria-label', '全屏');
+      }
+    }
     if (fsBtn) fsBtn.addEventListener('click', function () {
-      if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+      if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(function () {});
       else document.exitFullscreen();
     });
+    document.addEventListener('fullscreenchange', updateFullscreenIcon);
+    updateFullscreenIcon();
     navigate();
   }
 
