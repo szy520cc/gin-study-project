@@ -75,7 +75,9 @@
             "type": "button",
             "label": "编辑",
             "level": "link",
+            "className": "cfg-edit-link",
             "visibleOn": "this.status != 2",
+            "disabledOn": "this.cut_num > 0",
             "actionType": "dialog",
             "dialog": {
               "title": "编辑配置",
@@ -280,7 +282,9 @@
                                     "rule": "${rule}",
                                     "result_type": "${result_type}",
                                     "data": "${test_data}",
-                                    "pack": "${project_id}",
+                                    "pack": "${config_pack_logo}",
+                                    "config_pack_id": "${config_pack_id}",
+                                    "project_id": "${project_id}",
                                     "key": "${logo}",
                                     "version": "${version}"
                                   }
@@ -410,10 +414,13 @@
                     "type": "select",
                     "name": "cut_num",
                     "label": "切流比例",
-                    "required": true,
                     "clearable": false,
                     "placeholder": "请选择切流比例",
                     "options": [
+                      {
+                        "label": "取消切流",
+                        "value": 0
+                      },
                       {
                         "label": "10%",
                         "value": 0.1
@@ -450,8 +457,7 @@
                         "label": "90%",
                         "value": 0.9
                       }
-                    ],
-                    "description": "只能选择 10%~90% 共 9 档，不支持手填。100% 请直接使用「发布」转全量。"
+                    ]
                   }
                 ]
               }
@@ -767,7 +773,9 @@
                                 "rule": "${rule}",
                                 "result_type": "${result_type}",
                                 "data": "${test_data}",
-                                "pack": "${project_id}",
+                                "pack": "${config_pack_logo}",
+                                "config_pack_id": "${config_pack_id}",
+                                "project_id": "${project_id}",
                                 "key": "${logo}",
                                 "version": "${version}"
                               }

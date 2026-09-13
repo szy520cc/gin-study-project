@@ -83,10 +83,11 @@ func Publish(ctx context.Context, configID uint64) (*model.ConfigResponse, error
 //  4. 写老版本行的 cut_num/cut_version/cut_by/cut_at；
 //  5. 组装「老版本全量 + 新版本 NewVersionDetail」快照，写版本化 key（7 天 TTL）。
 func CutProgress(ctx context.Context, username string, req *model.CutProgressRequest) (*model.ConfigResponse, error) {
-	// ① 切流比例范围校验（资料缺失，越界值会静默失效）
-	if req.CutNum <= 0 || req.CutNum >= 1 {
+	// ① 切流比例范围校验：0 表示取消切流；正常切流必须在 (0,1)
+	if req.CutNum < 0 || req.CutNum >= 1 {
 		return nil, errcode.ErrCutNumInvalid
 	}
+	cancel := req.CutNum == 0
 
 	// ② 待上线版本
 	c, err := getConfig(ctx, req.ConfigID)
@@ -110,9 +111,13 @@ func CutProgress(ctx context.Context, username string, req *model.CutProgressReq
 		return nil, err
 	}
 
-	// ④ 写老版本行的切流字段
+	// ④ 写老版本行的切流字段：0 表示清空灰度标记，恢复切流前状态
 	now := time.Now().Unix()
-	if err := data.UpdateConfigCut(ctx, active.ID, req.CutNum, c.Version, username, now); err != nil {
+	cutVersion := c.Version
+	if cancel {
+		cutVersion = ""
+	}
+	if err := data.UpdateConfigCut(ctx, active.ID, req.CutNum, cutVersion, username, now); err != nil {
 		return nil, err
 	}
 
@@ -122,16 +127,18 @@ func CutProgress(ctx context.Context, username string, req *model.CutProgressReq
 		return nil, err
 	}
 
-	// ⑤ 组装快照：老版本全量 + 新版本灰度详情
+	// ⑤ 组装快照：正常切流时老版本 + 新版本；取消切流时仅老版本自身
 	activeSnap, err := buildSnapshot(ctx, active2)
 	if err != nil {
 		return nil, err
 	}
-	newSnap, err := buildSnapshot(ctx, c)
-	if err != nil {
-		return nil, err
+	if !cancel {
+		newSnap, err := buildSnapshot(ctx, c)
+		if err != nil {
+			return nil, err
+		}
+		activeSnap.NewVersion = newSnap
 	}
-	activeSnap.NewVersion = newSnap
 
 	// ⑥ 投放快照（7 天 TTL）
 	pack := packOf(ctx, active2.ProjectID)

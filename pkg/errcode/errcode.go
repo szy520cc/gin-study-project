@@ -186,6 +186,6 @@ var (
 var (
 	ErrConfigAlreadyActive  = New(90010, "配置已生效，不能重复发布", http.StatusBadRequest)
 	ErrConfigStatusInvalid  = New(90011, "配置状态不合法", http.StatusBadRequest)
-	ErrCutNumInvalid        = New(90012, "切流比例必须在 (0,1) 之间", http.StatusBadRequest)
+	ErrCutNumInvalid        = New(90012, "切流比例必须在 [0,1) 之间，0 表示取消切流", http.StatusBadRequest)
 	ErrConfigNoActiveVersion = New(90013, "无生效版本，无法切流", http.StatusBadRequest)
 )

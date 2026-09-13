@@ -1,5 +1,46 @@
 package model
 
+import (
+	"encoding/json"
+	"strconv"
+)
+
+// FlexUint64 兼容 JSON 字符串与数字的 uint64；空字符串按 0 处理。
+type FlexUint64 uint64
+
+func (u *FlexUint64) UnmarshalJSON(data []byte) error {
+	if len(data) == 0 {
+		*u = 0
+		return nil
+	}
+	if data[0] == '"' {
+		var s string
+		if err := json.Unmarshal(data, &s); err != nil {
+			return err
+		}
+		if s == "" {
+			*u = 0
+			return nil
+		}
+		v, err := strconv.ParseUint(s, 10, 64)
+		if err != nil {
+			return err
+		}
+		*u = FlexUint64(v)
+		return nil
+	}
+	var v uint64
+	if err := json.Unmarshal(data, &v); err != nil {
+		return err
+	}
+	*u = FlexUint64(v)
+	return nil
+}
+
+func (u FlexUint64) MarshalJSON() ([]byte, error) {
+	return json.Marshal(uint64(u))
+}
+
 // Rule 规则配置，对应资料中的 uc_ext_rule。
 //
 // config 的 type=rule 时，规则内容存在此表（通过 config_id 关联 config 主表）。
@@ -127,25 +168,26 @@ type UpdateRuleConfigRequest struct {
 // Data 目标参数：兼容 JSON 对象（{"material":{...}}）或 JSON 对象字符串两种形态，
 // 由 service 统一规范化为 map（见 normalizeData）。
 type TestRunRequest struct {
-	Rule       string      `json:"rule" binding:"required"` // 规则原文（含占位符）
-	ResultType string      `json:"result_type" binding:"required,oneof=pass_reject_review hit_result json"`
-	Data       interface{} `json:"data"` // 目标参数（任意 JSON）
-	Pack       string      `json:"pack"`
-	Key        string      `json:"key"`
-	Version    string      `json:"version"`
+	Rule         string      `json:"rule" binding:"required"` // 规则原文（含占位符）
+	ResultType   string      `json:"result_type" binding:"required,oneof=pass_reject_review hit_result json"`
+	Data         interface{} `json:"data"`          // 目标参数（任意 JSON）
+	Pack         string      `json:"pack"`          // 所属配置包标识（logo），如 risk_engine.default_pack
+	ConfigPackID FlexUint64  `json:"config_pack_id"` // 兜底：pack 为空时用它反查配置包标识
+	ProjectID    FlexUint64  `json:"project_id"`    // 项目主键
+	Key          string      `json:"key"`           // 配置标识（logo），如 risk_engine.txn_risk_check
+	Version      string      `json:"version"`
 }
 
 // TestRunResponse 现场验证结果。
 // 响应结构对齐线上 eval 的排查习惯：结果值 + 类型 + 规则上下文 + 每个指标的完整取值详情。
 type TestRunResponse struct {
-	Pack        string                    `json:"pack"`
-	Key         string                    `json:"key"`
+	Pack        string                    `json:"pack"`   // 所属配置包标识（logo），如 risk_engine.default_pack
+	Key         string                    `json:"key"`    // 配置标识（logo），如 risk_engine.txn_risk_check
 	Version     string                    `json:"version"`
 	Value       interface{}               `json:"value"`
 	Type        string                    `json:"type"`
 	ResultType  string                    `json:"result_type"`
 	BindVarInfo map[string]*BindVarResult `json:"bind_var_info"`
-	BindVars    []*BindVarResult          `json:"bind_vars"` // 前端表格展示用，保留顺序
 }
 
 // BindVarResult 单个指标的详细提取结果。
@@ -167,10 +209,11 @@ type PublishRequest struct {
 }
 
 // CutProgressRequest 灰度切流请求。
-// ConfigID 是待上线版本（status=0）；CutNum 是切给新版本的流量比例 (0,1)。
+// ConfigID 是待上线版本（status=0）；CutNum 是切给新版本的流量比例 (0,1)，
+// 传 0 表示取消切流（清空线上版本的灰度标记并恢复切流前快照）。
 type CutProgressRequest struct {
 	ConfigID uint64  `json:"config_id" binding:"required"`
-	CutNum   float64 `json:"cut_num" binding:"required"`
+	CutNum   float64 `json:"cut_num"` // 0 表示取消切流；后端再做 [0,1) 范围校验
 }
 
 // EvalRequest 线下测试求值请求（供程序调用）。

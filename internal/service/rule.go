@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/rand"
 	"reflect"
+	"strconv"
 	"strings"
 	"time"
 
@@ -420,7 +421,7 @@ func normalizeData(v interface{}) (map[string]any, error) {
 // TestRun 现场验证：编译 + 提取 + 执行，不落库、不碰缓存。
 // 返回执行结果 + 每个指标的实际提取值，便于区分「规则写错」与「取值取错」。
 func TestRun(ctx context.Context, req *model.TestRunRequest) (*model.TestRunResponse, error) {
-	return executeRule(ctx, req.Rule, req.ResultType, req.Data, req.Pack, req.Key, req.Version)
+	return executeRule(ctx, req.Rule, req.ResultType, req.Data, req.Pack, strconv.FormatUint(uint64(req.ConfigPackID), 10), req.Key, req.Version)
 }
 
 // executeRule 是「试跑」与「保存闸门」共用的执行核心。
@@ -428,7 +429,10 @@ func TestRun(ctx context.Context, req *model.TestRunRequest) (*model.TestRunResp
 // 链路：校验原文 → 规范化入参 → 编译成 Starlark 成品 → 按 bind_var 取指标元信息 →
 // 从入参里按解析路径取值（取不到用默认值）→ 执行 → 转换结果。
 // 全程只读：不落库、不碰缓存，可安全地在保存前重复调用。
-func executeRule(ctx context.Context, ruleSource, resultType string, rawData interface{}, pack, key, version string) (*model.TestRunResponse, error) {
+//
+// pack 优先用请求里直传的配置包标识（logo）；为空时退回用 configPackID 反查，
+// 再不行退回空串，不阻断试跑。
+func executeRule(ctx context.Context, ruleSource, resultType string, rawData interface{}, pack, configPackID, key, version string) (*model.TestRunResponse, error) {
 	if err := engine.ValidateRule(ruleSource); err != nil {
 		return nil, errcode.ErrRuleInvalid.WithDetails("%s", err.Error())
 	}
@@ -482,16 +486,37 @@ func executeRule(ctx context.Context, ruleSource, resultType string, rawData int
 	if err != nil {
 		return nil, errcode.ErrRuleExecuteFailed.WithDetails("%s", err.Error())
 	}
+	// pack 优先用请求直传的配置包标识；为空才反查兜底。
+	resolvedPack := pack
+	if resolvedPack == "" && configPackID != "" {
+		resolvedPack = packLogoOf(ctx, configPackID)
+	}
 	return &model.TestRunResponse{
-		Pack:        pack,
+		Pack:        resolvedPack,
 		Key:         key,
 		Version:     version,
 		Value:       value,
 		Type:        resultValueType(value),
 		ResultType:  resultType,
 		BindVarInfo: bindInfo,
-		BindVars:    bindResults,
 	}, nil
+}
+
+// packLogoOf 把配置包主键解析成配置包标识（logo）回填到响应的 pack 字段。
+// 解析不到（草稿未选配置包 / ID 非法）时退回空串，不阻断试跑。
+func packLogoOf(ctx context.Context, configPackID string) string {
+	if configPackID == "" {
+		return ""
+	}
+	id, err := strconv.ParseUint(configPackID, 10, 64)
+	if err != nil || id == 0 {
+		return configPackID
+	}
+	p, err := data.GetConfigPackByID(ctx, id)
+	if err != nil || p.Logo == "" {
+		return configPackID
+	}
+	return p.Logo
 }
 
 // isEmptyTestData 判断「试跑入参」是否等于没填。
@@ -562,6 +587,6 @@ func ensureRuleRunnable(ctx context.Context, ruleSource, resultType string, rawD
 	if isEmptyTestData(rawData) {
 		return errcode.ErrRuleInvalid.WithDetails("保存前必须填写「试跑入参（JSON）」：规则要先能真实跑通才允许保存")
 	}
-	_, err := executeRule(ctx, ruleSource, resultType, rawData, "", "", "")
+	_, err := executeRule(ctx, ruleSource, resultType, rawData, "", "", "", "")
 	return err
 }

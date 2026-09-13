@@ -537,6 +537,14 @@ body[data-theme] .amis-scope .cxd-Button--link:not(:disabled):hover,
 body[data-theme] .amis-scope .cxd-Button--link:not(:disabled):active {
   color: var(--c-accent) !important;
 }
+/* 切流中的配置：编辑按钮置灰，与可编辑状态区分 */
+body[data-theme] .amis-scope .cxd-Button--link.cfg-edit-link:disabled,
+body[data-theme] .amis-scope .cxd-Button--link.cfg-edit-link.is-disabled,
+body[data-theme] .amis-scope .cxd-Button--link.cfg-edit-link[disabled] {
+  color: var(--c-text-muted) !important;
+  cursor: not-allowed;
+  opacity: .55;
+}
 body[data-theme] .amis-scope .cxd-TextControl.is-focused > .cxd-TextControl-input,
 body[data-theme] .amis-scope .cxd-TextControl-input:focus,
 body[data-theme] .amis-scope .cxd-Select.is-focused > .cxd-Select-input,
