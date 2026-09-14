@@ -288,7 +288,7 @@
       ta: ta, ed: ed, gutterEl: gutterEl, gutterInner: gutterInner, dd: dd, refs: refs,
       items: [], allItems: [], active: 0,
       insertOffset: -1,
-      composing: false, debTimer: null, syncTimer: null, last: null,
+      syncTimer: null, last: null,
       undo: [], redo: [], histAt: 0, histCaret: -1, undoBtn: null, redoBtn: null
     };
 
@@ -532,7 +532,6 @@
     }
     function closeDD() {
       st.items = []; st.allItems = [];
-      clearTimeout(st.debTimer);
       dd.hidden = true;
     }
 
@@ -716,8 +715,7 @@
     if (st.redoBtn) st.redoBtn.addEventListener('click', function () { doRedo(); });
     updateHistButtons();
     ed.addEventListener('scroll', function () { gutterSyncScroll(); guidesSyncScroll(); });
-    ed.addEventListener('compositionstart', function () { st.composing = true; });
-    ed.addEventListener('compositionend', function () { st.composing = false; commit(); });
+    ed.addEventListener('compositionend', function () { commit(); });
     /* 编辑区为 contenteditable="true"（为绕开 amis 的方向键拦截），
        粘贴必须强制转纯文本，否则网页富文本会带样式进 DOM。 */
     ed.addEventListener('paste', function (e) {
@@ -805,10 +803,10 @@
   function unmount(h) {
     if (!h || !h.st) return;
     var st = h.st;
-    clearInterval(st.syncTimer); clearTimeout(st.debTimer);
+    clearInterval(st.syncTimer);
     if (st.onDocDown) document.removeEventListener('mousedown', st.onDocDown, true);
     if (st.dd && st.dd.parentNode) st.dd.parentNode.removeChild(st.dd);
-    var wrap = (st.ed && st.ed.parentNode) || st.wrap;
+    var wrap = st.ed && st.ed.parentNode;
     if (wrap && wrap.parentNode) wrap.parentNode.removeChild(wrap);
     if (st.ta) {
       st.ta.removeAttribute('data-re-mounted');

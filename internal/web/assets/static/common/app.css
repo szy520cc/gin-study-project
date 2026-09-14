@@ -14,7 +14,6 @@
   --c-border: #e4e7ed;
   --c-text: #333;
   --c-text-muted: #909399;
-  --c-link: #64748b;
 
   --c-accent: #2f6fed;
   --c-accent-strong: #1f6feb;
@@ -101,16 +100,11 @@ body { background: var(--c-body); color: var(--c-text); }
 }
 .login-head { margin-bottom: 30px; text-align: center; }
 .login-head h1 { font-size: 24px; font-weight: 700; color: #1a2b4a; margin: 0 0 8px; }
-.login-head p { font-size: 14px; color: #6b7a90; margin: 0; }
 
 .login-main .alert { border-radius: 10px; font-size: 13px; padding: 10px 14px; margin-bottom: 20px; }
 
 /* 表单字段：标签在左、输入框在右（左右分布） */
 .login-field { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
-.login-field-label {
-  flex: 0 0 60px; text-align: right; padding-right: 4px;
-  font-size: 14px; font-weight: 500; color: #334155; margin: 0;
-}
 .login-field-control { flex: 1 1 auto; min-width: 0; }
 
 /* 带图标的输入框 */
@@ -130,7 +124,6 @@ body { background: var(--c-body); color: var(--c-text); }
   border-color: var(--c-accent);
   box-shadow: 0 0 0 3px var(--c-focus-ring);
 }
-.login-input .form-control:focus ~ .login-input-icon { color: var(--c-accent); }
 .login-input .form-control::placeholder { color: #9aa7b8; }
 /* 错误状态 */
 .login-input .form-control.is-invalid { border-color: #e5484d; }
@@ -168,8 +161,6 @@ body { background: var(--c-body); color: var(--c-text); }
   .login-main { padding: 24px 16px; }
   .login-card { width: 100%; max-width: 360px; padding: 32px 24px; }
   .login-field { gap: 12px; }
-  .login-field-label { flex: 0 0 52px; font-size: 13px; }
-  .login-options { margin-left: 64px; }
 }
 
 /* ---------- 顶栏 ---------- */
@@ -343,7 +334,6 @@ body[data-theme="light"] {
   --c-border: #e2e8f0;
   --c-text: #243b3a;
   --c-text-muted: #5f7d7a;
-  --c-link: #5b7d78;
 
   --c-accent: #0f9d8f;
   --c-accent-strong: #0b8a7d;
@@ -380,7 +370,6 @@ body[data-theme="grape"] {
   --c-border: #e7e3f4;
   --c-text: #2d2a3d;
   --c-text-muted: #7a7494;
-  --c-link: #6b6590;
 
   --c-accent: #7c3aed;
   --c-accent-strong: #6d28d9;
@@ -419,7 +408,6 @@ body[data-theme="ocean"] {
   --c-border: #dce7f5;
   --c-text: #1f2f45;
   --c-text-muted: #5c7590;
-  --c-link: #4a6a8a;
 
   --c-accent: #0ea5e9;
   --c-accent-strong: #0284c7;
@@ -454,7 +442,6 @@ body[data-theme="sunset"] {
   --c-border: #f0dfd0;
   --c-text: #483a2c;
   --c-text-muted: #96714f;
-  --c-link: #8a5a32;
 
   --c-accent: #f97316;
   --c-accent-strong: #ea580c;
@@ -489,7 +476,6 @@ body[data-theme="forest"] {
   --c-border: #dce8db;
   --c-text: #22381f;
   --c-text-muted: #5f7a5a;
-  --c-link: #4a6e43;
 
   --c-accent: #16a34a;
   --c-accent-strong: #15803d;

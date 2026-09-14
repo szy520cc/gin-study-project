@@ -166,14 +166,6 @@ func GetLatestConfigByLogo(ctx context.Context, logo string) (*model.Config, err
 	return &c, nil
 }
 
-// ListConfigsByLogo 查同 logo 的全部版本（按 status 升序、version 降序）。
-func ListConfigsByLogo(ctx context.Context, logo string) ([]*model.Config, error) {
-	var list []*model.Config
-	err := connDb(ctx).Where("logo = ?", logo).
-		Order("status ASC, version DESC").Find(&list).Error
-	return list, err
-}
-
 // OfflineOtherVersions 下线同 logo 的其它生效版本并清空灰度字段（publish 用）。
 // excludeID 是要发布（待激活）的版本，不在此列；其余 status=1 的全部下线（1→2）。
 func OfflineOtherVersions(ctx context.Context, logo string, excludeID uint64) error {

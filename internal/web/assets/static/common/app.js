@@ -413,7 +413,6 @@
     if (h && h.indexOf('#/pages/') === 0) return h.slice('#/pages/'.length);
     return HOME_KEY;
   }
-  function currentKey() { return pathOf(location.hash); }
   function leafTitle(key) {
     var chain = findChain(key);
     if (chain && chain.length) return chain[chain.length - 1].title;
@@ -445,17 +444,6 @@
   function isKnownKey(key) {
     if (findChain(key)) return true;
     return !!(window.APP_LINK_ONLY && window.APP_LINK_ONLY[key]);
-  }
-  // firstLeafKey：父容器点击时跳到该子树下第一个叶子页
-  function firstLeafKey(node) {
-    if (node.key) return node.key;
-    if (node.children && node.children.length) {
-      for (var i = 0; i < node.children.length; i++) {
-        var k = firstLeafKey(node.children[i]);
-        if (k) return k;
-      }
-    }
-    return null;
   }
 
   // ---------- 树形菜单渲染（可折叠，父节点不可跳转） ----------
