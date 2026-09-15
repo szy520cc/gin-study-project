@@ -74,6 +74,21 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	// 对外服务接口（/engine/eval）鉴权配置校验。
+	for _, cidr := range c.Engine.Auth.AllowCIDRs {
+		item := strings.TrimSpace(cidr)
+		if item == "" {
+			continue
+		}
+		if _, _, err := net.ParseCIDR(item); err != nil && net.ParseIP(item) == nil {
+			errs = append(errs, fmt.Sprintf("engine.auth.allow_cidrs 含非法条目 %q（需为 IP 或 CIDR）", item))
+		}
+	}
+	// 语义一致性：开了「读草稿」却没有内部令牌，等于该能力无人可用（或误以为已受控）。
+	if c.Engine.AllowOfflineDraft && len(c.Engine.Auth.InternalTokens) == 0 {
+		errs = append(errs, "engine.allow_offline_draft=true 时必须配置 engine.auth.internal_tokens（否则 offline_flag 无法授权）")
+	}
+
 	if c.JWT.Secret == "" {
 		errs = append(errs, "jwt.secret 不能为空（请通过环境变量 APP_JWT_SECRET 注入）")
 	}
@@ -110,6 +125,10 @@ func (c *Config) Validate() error {
 		}
 		if c.Database.LogSQLParams {
 			errs = append(errs, "生产环境不允许 database.log_sql_params=true（SQL 绑定参数会连同用户数据落盘）")
+		}
+		// /engine/eval 对外提供程序调用，无鉴权等于把规则求值能力与配置内容暴露给任何可达方。
+		if len(c.Engine.Auth.Tokens) == 0 {
+			errs = append(errs, "生产环境必须配置 engine.auth.tokens（/engine/eval 不能无鉴权暴露，可用 APP_ENGINE_AUTH_TOKENS 注入）")
 		}
 		// 不做成硬失败：直连暴露的部署确实应该保持 trusted_proxies 为空，
 		// 配置里无法区分「直连」和「忘填」。但后果足够严重，必须显式提示。

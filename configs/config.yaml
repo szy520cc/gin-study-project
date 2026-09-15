@@ -79,3 +79,15 @@ rate_limit:
   burst: 100
   auth_rps: 1 # 注册/登录单独配额，用于挡暴力破解
   auth_burst: 5
+
+# 对外服务接口（/engine/eval，供程序调用）鉴权。
+# 调用方通过 X-Service-Token 头或 Authorization: Bearer 出示令牌。
+# 敏感值不要写进被版本管理的文件，建议用环境变量注入（逗号分隔）：
+#   APP_ENGINE_AUTH_TOKENS / APP_ENGINE_AUTH_INTERNAL_TOKENS / APP_ENGINE_AUTH_ALLOW_CIDRS
+# 生产环境必须配置 tokens（否则拒绝启动）。
+engine:
+  auth:
+    tokens: [] # 普通服务令牌：可求值「已发布指针」或显式 version
+    internal_tokens: [] # 内部令牌：可额外用 offline_flag 读草稿（需 allow_offline_draft=true）
+    allow_cidrs: [] # 可选 IP 白名单：配置后与令牌「叠加」校验（令牌正确 且 IP 命中）
+  allow_offline_draft: false # 是否允许 eval 读未发布草稿；草稿预览的常规入口是后台「试运行」

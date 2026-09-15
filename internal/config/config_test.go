@@ -109,7 +109,7 @@ database:
 jwt:
   secret: "0123456789abcdef0123456789abcdef"
 `,
-		"config.prod.yaml": "server:\n  mode: \"release\"\n  addr: \":9090\"\ncors:\n  allow_origins: [\"https://app.example.com\"]\n",
+		"config.prod.yaml": "server:\n  mode: \"release\"\n  addr: \":9090\"\ncors:\n  allow_origins: [\"https://app.example.com\"]\nengine:\n  auth:\n    tokens: [\"svc-token\"]\n",
 	})
 
 	cfg, err := Load(dir, "prod")
@@ -158,7 +158,7 @@ func TestLoad_SkipsLocalOverrideInProd(t *testing.T) {
 	files := map[string]string{
 		"config.yaml": "database:\n  host: \"prod-host\"\n  username: u\n  dbname: d\n  password: p\n" +
 			"jwt:\n  secret: \"0123456789abcdef0123456789abcdef\"\n",
-		"config.prod.yaml":  "server:\n  mode: \"release\"\ncors:\n  allow_origins: [\"https://app.example.com\"]\n",
+		"config.prod.yaml":  "server:\n  mode: \"release\"\ncors:\n  allow_origins: [\"https://app.example.com\"]\nengine:\n  auth:\n    tokens: [\"svc-token\"]\n",
 		"config.local.yaml": "database:\n  host: \"local-host\"\n",
 	}
 
@@ -203,6 +203,14 @@ func TestValidate_RejectsBadConfig(t *testing.T) {
 		"trusted_proxies 非法": {
 			yaml: minimalYAML + "server:\n  trusted_proxies: [\"not-an-ip\"]\n",
 			want: "trusted_proxies",
+		},
+		"engine 白名单非法": {
+			yaml: minimalYAML + "engine:\n  auth:\n    allow_cidrs: [\"not-a-cidr\"]\n",
+			want: "engine.auth.allow_cidrs",
+		},
+		"offline_draft 缺内部令牌": {
+			yaml: minimalYAML + "engine:\n  allow_offline_draft: true\n",
+			want: "engine.auth.internal_tokens",
 		},
 	}
 
@@ -273,4 +281,39 @@ func TestValidate_ProdRules(t *testing.T) {
 			t.Errorf("生产 pprof 绑非回环应被拦住，实际: %v", err)
 		}
 	})
+
+	t.Run("生产未配置 engine 令牌", func(t *testing.T) {
+		dir := writeConfig(t, map[string]string{
+			"config.yaml":      base + "jwt:\n  secret: \"0123456789abcdef0123456789abcdef\"\n",
+			"config.prod.yaml": "# 生产环境必须存在这个文件\n",
+		})
+
+		if _, err := Load(dir, "prod"); err == nil || !strings.Contains(err.Error(), "engine.auth.tokens") {
+			t.Errorf("生产必须配置 /engine/eval 服务令牌，实际: %v", err)
+		}
+	})
+}
+
+// TestLoad_EnvInjectsEngineTokens 锁住 /engine/eval 令牌的「逗号分隔环境变量」注入。
+// viper 无法直接把 env 字符串 Unmarshal 成 []string，这里必须走显式解析。
+func TestLoad_EnvInjectsEngineTokens(t *testing.T) {
+	dir := writeConfig(t, map[string]string{"config.yaml": minimalYAML})
+
+	t.Setenv("APP_ENGINE_AUTH_TOKENS", " t1 , t2 ")
+	t.Setenv("APP_ENGINE_AUTH_INTERNAL_TOKENS", "internal-1")
+	t.Setenv("APP_ENGINE_AUTH_ALLOW_CIDRS", "10.0.0.0/8,192.168.1.1")
+
+	cfg, err := Load(dir, "dev")
+	if err != nil {
+		t.Fatalf("加载失败: %v", err)
+	}
+	if len(cfg.Engine.Auth.Tokens) != 2 || cfg.Engine.Auth.Tokens[0] != "t1" || cfg.Engine.Auth.Tokens[1] != "t2" {
+		t.Errorf("tokens 应从逗号分隔 env 注入并去空白，实际 %v", cfg.Engine.Auth.Tokens)
+	}
+	if len(cfg.Engine.Auth.InternalTokens) != 1 || cfg.Engine.Auth.InternalTokens[0] != "internal-1" {
+		t.Errorf("internal_tokens 注入异常: %v", cfg.Engine.Auth.InternalTokens)
+	}
+	if len(cfg.Engine.Auth.AllowCIDRs) != 2 {
+		t.Errorf("allow_cidrs 注入异常: %v", cfg.Engine.Auth.AllowCIDRs)
+	}
 }

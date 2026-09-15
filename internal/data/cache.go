@@ -64,6 +64,16 @@ func SetSnapshot(ctx context.Context, pack, ext, version string, snap *model.Con
 	return rc.Client().Set(ctx, evalKey(pack, ext, version), b, snapshotTTL).Err()
 }
 
+// DelCurVer 删除版本指针（被指针指向的版本被删除后清理，避免 eval 一直指向不存在的版本）。
+// Redis 关闭静默降级。
+func DelCurVer(ctx context.Context, pack, ext string) error {
+	rc := redis()
+	if rc == nil {
+		return nil
+	}
+	return rc.Client().Del(ctx, curVerKey(pack, ext)).Err()
+}
+
 // GetSnapshot 读快照。miss / 反序列化失败 / Redis 关闭返回 nil。
 func GetSnapshot(ctx context.Context, pack, ext, version string) *model.ConfigSnapshot {
 	rc := redis()
@@ -124,4 +134,14 @@ func DelLatest(ctx context.Context, pack, ext string) error {
 		return nil
 	}
 	return rc.Client().Del(ctx, latestKey(pack, ext)).Err()
+}
+
+// DelSnapshot 删除某个版本的版本化快照（配置内容原地变更后失效其缓存）。
+// 编辑草稿时版本号不变，若不删，曾被显式 version 求值写入的旧快照会在发布后被命中。Redis 关闭静默降级。
+func DelSnapshot(ctx context.Context, pack, ext, version string) error {
+	rc := redis()
+	if rc == nil {
+		return nil
+	}
+	return rc.Client().Del(ctx, evalKey(pack, ext, version)).Err()
 }

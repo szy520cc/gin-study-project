@@ -189,3 +189,13 @@ var (
 	ErrCutNumInvalid        = New(90012, "切流比例必须在 [0,1) 之间，0 表示取消切流", http.StatusBadRequest)
 	ErrConfigNoActiveVersion = New(90013, "无生效版本，无法切流", http.StatusBadRequest)
 )
+
+// 对外服务接口（/engine/eval）鉴权相关错误
+var (
+	// ErrServiceAuthRequired 缺少或非法的服务令牌。
+	ErrServiceAuthRequired = New(40001, "缺少或非法的服务令牌", http.StatusUnauthorized)
+	// ErrServiceIPForbidden 来源 IP 不在白名单内。
+	ErrServiceIPForbidden = New(40002, "来源 IP 不在白名单内", http.StatusForbidden)
+	// ErrEngineOfflineForbidden 不允许通过 offline_flag 读取未发布草稿。
+	ErrEngineOfflineForbidden = New(40003, "不允许读取未发布的草稿规则", http.StatusForbidden)
+)

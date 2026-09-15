@@ -11,6 +11,7 @@ import (
 	"myproject/internal/data"
 	"myproject/internal/model"
 	"myproject/pkg/errcode"
+	"myproject/pkg/logger"
 	"myproject/pkg/transaction"
 )
 
@@ -133,17 +134,40 @@ func UpdateConfig(ctx context.Context, id uint64, username string, req *model.Up
 	return nil
 }
 
-// DeleteConfig 删除配置（联动删除其规则子表，避免孤儿数据）
+// DeleteConfig 删除配置（联动删除其规则子表，避免孤儿数据）。
+//
+// 删除后同步修正缓存与「最新版本」标记（纯 DB/Redis 收尾，失败不回滚删除结果）：
+//   - 清 latest 草稿快照 + 该版本的版本化快照 → 避免 offline/求值读到已删内容（最长 7 天）；
+//   - 若删掉的正是版本指针所指版本 → 清掉指针，避免 eval 一直指向不存在的版本；
+//   - 若删掉的是 is_latest 版本 → 把标记归还给剩余版本（否则 is_latest=1 查不到任何行）。
 func DeleteConfig(ctx context.Context, id uint64) error {
-	if _, err := getConfig(ctx, id); err != nil {
+	c, err := getConfig(ctx, id)
+	if err != nil {
 		return err
 	}
-	return transaction.Do(ctx, func(ctx context.Context) error {
+	pack := packOf(ctx, c.ProjectID)
+
+	if err := transaction.Do(ctx, func(ctx context.Context) error {
 		if err := data.DeleteRuleByConfigID(ctx, id); err != nil {
 			return err
 		}
 		return data.DeleteConfig(ctx, id)
-	})
+	}); err != nil {
+		return err
+	}
+
+	_ = data.DelLatest(ctx, pack, c.Logo)
+	_ = data.DelSnapshot(ctx, pack, c.Logo, c.Version)
+	if data.GetCurVer(ctx, pack, c.Logo) == c.Version {
+		_ = data.DelCurVer(ctx, pack, c.Logo)
+	}
+	if c.IsLatest == model.ConfigLatestYes {
+		if rerr := data.RestoreLatest(ctx, c.Logo); rerr != nil {
+			logger.C(ctx).Warn("删除配置后归还 is_latest 失败（列表按 logo 聚合不受影响）",
+				"logo", c.Logo, "err", rerr.Error())
+		}
+	}
+	return nil
 }
 
 // ListConfigs 分页查询配置。

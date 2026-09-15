@@ -38,17 +38,32 @@ func Publish(ctx context.Context, configID uint64) (*model.ConfigResponse, error
 	pack := packOf(ctx, c.ProjectID)
 
 	if err := transaction.Do(ctx, func(ctx context.Context) error {
-		// ① 下线其它生效版本（连带清灰度字段）
+		// ① 锁定同 logo 全部版本行，与切流串行化（避免「读状态 → 写状态」并发交错）
+		if _, lerr := data.LockConfigsByLogo(ctx, c.Logo); lerr != nil {
+			return lerr
+		}
+		// ② 锁内重读状态，防止加锁前的判断已过期
+		cur, cerr := data.GetConfigByID(ctx, c.ID)
+		if cerr != nil {
+			return cerr
+		}
+		if cur.Status == model.ConfigStatusActive {
+			return errcode.ErrConfigAlreadyActive
+		}
+		if cur.Status != model.ConfigStatusPending {
+			return errcode.ErrConfigStatusInvalid.WithDetails("仅待审核状态可发布，当前状态 %d", cur.Status)
+		}
+		// ③ 下线其它生效版本（连带清灰度字段）
 		if err := data.OfflineOtherVersions(ctx, c.Logo, c.ID); err != nil {
 			return err
 		}
-		// ② 激活当前版本
+		// ④ 激活当前版本
 		return data.ActiveConfig(ctx, c.ID)
 	}); err != nil {
 		return nil, err
 	}
 
-	// ③ commit 成功后写版本指针（事务外，避免事务内操作非事务资源）
+	// ⑤ commit 成功后写版本指针（事务外，避免事务内操作非事务资源）
 	if err := data.SetCurVer(ctx, pack, c.Logo, c.Version); err != nil {
 		// 指针写失败不影响 DB 已提交的发布结果（config 已激活）。
 		// 这里不能返回错误：DB 已发布，用户重试会报「已生效」，陷入死胡同。
@@ -67,6 +82,18 @@ func Publish(ctx context.Context, configID uint64) (*model.ConfigResponse, error
 	if err != nil {
 		return nil, err
 	}
+
+	// 刷新「新上线版本」的版本化快照 + 清草稿快照：
+	// 防止历史遗留的陈旧快照（例如该版本待审核时曾被显式 version 求值写入）在发布后被默认路径命中。
+	if snap, serr := buildSnapshot(ctx, latest); serr != nil {
+		logger.C(ctx).Warn("发布后组装版本快照失败（eval 将回源自愈）",
+			"logo", latest.Logo, "version", latest.Version, "err", serr.Error())
+	} else if serr := data.SetSnapshot(ctx, pack, latest.Logo, latest.Version, snap); serr != nil {
+		logger.C(ctx).Warn("发布后刷新版本快照失败（eval 将回源自愈）",
+			"logo", latest.Logo, "version", latest.Version, "err", serr.Error())
+	}
+	_ = data.DelLatest(ctx, pack, c.Logo)
+
 	resp := latest.ToResponse()
 	if err := fillConfigFlags(ctx, []*model.ConfigResponse{resp}); err != nil {
 		return nil, err
@@ -89,7 +116,7 @@ func CutProgress(ctx context.Context, username string, req *model.CutProgressReq
 	}
 	cancel := req.CutNum == 0
 
-	// ② 待上线版本
+	// ② 待上线版本（先读一次拿 logo 用于加锁；状态会在锁内重校）
 	c, err := getConfig(ctx, req.ConfigID)
 	if err != nil {
 		return nil, err
@@ -97,64 +124,127 @@ func CutProgress(ctx context.Context, username string, req *model.CutProgressReq
 	if c.Status != model.ConfigStatusPending {
 		return nil, errcode.ErrConfigStatusInvalid.WithDetails("仅待审核版本可切流，当前状态 %d", c.Status)
 	}
-	// 规则类型必须先有规则内容，否则切流后灰度流量会报「规则未配置」
-	if err := ensureRuleConfigured(ctx, c); err != nil {
-		return nil, err
-	}
-
-	// ③ 当前生效版本（灰度状态挂在其行上）
-	active, err := data.GetActiveConfigByLogo(ctx, c.Logo)
-	if err != nil {
-		if data.IsNotFound(err) {
-			return nil, errcode.ErrConfigNoActiveVersion
-		}
-		return nil, err
-	}
-
-	// ④ 写老版本行的切流字段：0 表示清空灰度标记，恢复切流前状态
-	now := time.Now().Unix()
-	cutVersion := c.Version
-	if cancel {
-		cutVersion = ""
-	}
-	if err := data.UpdateConfigCut(ctx, active.ID, req.CutNum, cutVersion, username, now); err != nil {
-		return nil, err
-	}
-
-	// 重读 active（拿最新 cut 字段）
-	active2, err := data.GetConfigByID(ctx, active.ID)
-	if err != nil {
-		return nil, err
-	}
-
-	// ⑤ 组装快照：正常切流时老版本 + 新版本；取消切流时仅老版本自身
-	activeSnap, err := buildSnapshot(ctx, active2)
-	if err != nil {
-		return nil, err
-	}
 	if !cancel {
-		newSnap, err := buildSnapshot(ctx, c)
-		if err != nil {
+		// 取消切流不涉及规则上线；正常切流要求规则内容就绪，否则灰度流量会报「规则未配置」。
+		if err := ensureRuleConfigured(ctx, c); err != nil {
 			return nil, err
 		}
-		activeSnap.NewVersion = newSnap
 	}
 
-	// ⑥ 投放快照（7 天 TTL）
-	pack := packOf(ctx, active2.ProjectID)
-	if err := data.SetSnapshot(ctx, pack, active2.Logo, active2.Version, activeSnap); err != nil {
-		// 灰度标记已写入 DB（事实源），但快照未投放成功 → 灰度不会生效。
-		// 返回错误引导重试（重试幂等，会重新组装并投放快照）。
-		logger.C(ctx).Error("切流快照投放失败，灰度标记已写入 DB",
-			"pack", pack, "logo", active2.Logo, "version", active2.Version, "err", err.Error())
-		return nil, errcode.ErrInternal.WithDetails("切流已记录但缓存投放失败，请重试")
+	// ③ 事务内：锁住同 logo 全部版本行（与 Publish 共用同一把锁 → 二者互斥）
+	//    → 锁内重校状态 → 写/清切流字段 → 锁内重读拿到最终状态。
+	//    快照投放在事务外，但只投给「这里确定的那个 active 版本」，避免 commit 与投放
+	//    之间被并发发布换掉 active 版本（否则会把灰度挂到刚上线的版本上）。
+	var activeAfter, pendingAfter *model.Config
+	if err := transaction.Do(ctx, func(ctx context.Context) error {
+		if _, lerr := data.LockConfigsByLogo(ctx, c.Logo); lerr != nil {
+			return lerr
+		}
+		cur, cerr := data.GetConfigByID(ctx, c.ID)
+		if cerr != nil {
+			return cerr
+		}
+		if cur.Status != model.ConfigStatusPending {
+			return errcode.ErrConfigStatusInvalid.WithDetails("仅待审核版本可切流，当前状态 %d", cur.Status)
+		}
+		pendingAfter = cur
+
+		active, aerr := data.GetActiveConfigByLogo(ctx, c.Logo)
+		if aerr != nil {
+			if data.IsNotFound(aerr) {
+				// 取消切流幂等：本就没有生效版本 = 已是未切流态，直接成功。
+				if cancel {
+					return nil
+				}
+				return errcode.ErrConfigNoActiveVersion
+			}
+			return aerr
+		}
+
+		if cancel {
+			// 取消：清空全部切流字段，回到「从未切流」的干净状态（不留操作者/时间残留）。
+			if uerr := data.ClearConfigCut(ctx, active.ID); uerr != nil {
+				return uerr
+			}
+		} else {
+			if uerr := data.UpdateConfigCut(ctx, active.ID, req.CutNum, cur.Version, username, time.Now().Unix()); uerr != nil {
+				return uerr
+			}
+		}
+
+		// 锁内重读：拿到写入后的切流字段，且确保仍是刚被锁定的那一行。
+		latest, lerr := data.GetConfigByID(ctx, active.ID)
+		if lerr != nil {
+			return lerr
+		}
+		activeAfter = latest
+		return nil
+	}); err != nil {
+		return nil, err
 	}
 
-	resp := active2.ToResponse()
+	// ④ 事务外：重建并投放到「事务内确定的 active 版本」的 key
+	//    （正常切流=老版本+新版本；取消=仅老版本自身）。
+	//    activeAfter 为 nil 表示「无生效版本且是取消切流」→ 幂等成功，无需投放。
+	resp := pendingAfter.ToResponse()
+	if activeAfter != nil {
+		snap, berr := buildSnapshot(ctx, activeAfter)
+		if berr != nil {
+			return nil, berr
+		}
+		if !cancel {
+			newSnap, nerr := buildSnapshot(ctx, pendingAfter)
+			if nerr != nil {
+				return nil, nerr
+			}
+			snap.NewVersion = newSnap
+		}
+		pack := packOf(ctx, activeAfter.ProjectID)
+		if serr := data.SetSnapshot(ctx, pack, activeAfter.Logo, activeAfter.Version, snap); serr != nil {
+			// 灰度标记已写入 DB（事实源），但快照未投放成功 → 灰度不会生效。
+			// 返回错误引导重试（重试幂等，会重新组装并投放快照）。
+			logger.C(ctx).Error("切流快照投放失败，灰度标记已写入 DB",
+				"pack", pack, "logo", activeAfter.Logo, "version", activeAfter.Version, "err", serr.Error())
+			return nil, errcode.ErrInternal.WithDetails("切流已记录但缓存投放失败，请重试")
+		}
+		resp = activeAfter.ToResponse()
+	}
+
+	action := "cut"
+	if cancel {
+		action = "cancel"
+	}
+	// 审计：cut_* 只表达「当前灰度状态」，谁在何时切流/取消走日志，避免业务字段残留。
+	logger.C(ctx).Info("config cut changed",
+		"action", action, "logo", c.Logo, "operator", username, "cut_num", req.CutNum)
+
 	if err := fillConfigFlags(ctx, []*model.ConfigResponse{resp}); err != nil {
 		return nil, err
 	}
 	return resp, nil
+}
+
+// invalidateGraySnapshotForDraft 若被编辑的版本正是「当前生效版本灰度指向的待上线版本」，
+// 就删掉生效版本的版本化快照，让下次 eval 回源重建。
+//
+// 为什么需要：灰度快照里内嵌了待上线版本（NewVersion）的规则副本，而原地编辑草稿
+// 既不改版本号、也不碰生效版本的 key —— 不删的话灰度流量会继续执行旧草稿规则，
+// 直到下次点切流或 7 天 TTL 到期（用户无感知）。
+func invalidateGraySnapshotForDraft(ctx context.Context, pack, logo, editedVersion string) {
+	if editedVersion == "" {
+		return
+	}
+	active, err := data.GetActiveConfigByLogo(ctx, logo)
+	if err != nil {
+		return // 无生效版本（或查询失败）：没有灰度快照可失效
+	}
+	if active.CutVersion != editedVersion {
+		return // 编辑的不是灰度目标版本，不涉及灰度快照
+	}
+	if derr := data.DelSnapshot(ctx, pack, logo, active.Version); derr != nil {
+		logger.C(ctx).Warn("灰度中编辑待上线版本后失效生效版本快照失败（下次切流会重建）",
+			"pack", pack, "logo", logo, "active_version", active.Version, "err", derr.Error())
+	}
 }
 
 // ensureRuleConfigured type=rule 的 config 必须有「可用的」规则内容才能发布/切流。

@@ -31,10 +31,13 @@ func TestRuleLifecycle(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = data.DeleteProject(ctx, proj.ID) })
 
-	// 2. 建指标（field）
+	// 2. 建指标（field）。
+	// 解析路径必须带「项目标识」前缀（与 service.CreateField 的校验一致），
+	// 因此入参也要按 {"<项目标识>": {...}} 命名空间传递（见 service.Eval 的 checkNamespace）。
+	parsePath := proj.Logo + ".material.vertical_type"
 	fld := &model.Field{
 		ProjectID: fmt.Sprintf("%d", proj.ID), Name: "资源类型", Type: model.FieldTypeInt,
-		DefaultValue: `{"type":"int","value":-1}`, ParsePath: "material.vertical_type",
+		DefaultValue: `{"type":"int","value":-1}`, ParsePath: parsePath,
 		Status: model.FieldStatusActive, CreatedUser: "tester", UpdatedUser: "tester",
 		CreatedAt: now, UpdatedAt: now,
 	}
@@ -42,6 +45,11 @@ func TestRuleLifecycle(t *testing.T) {
 		t.Fatalf("建字段失败: %v", err)
 	}
 	t.Cleanup(func() { _ = data.DeleteField(ctx, fld.ID) })
+
+	// ctxData 按项目命名空间包装入参，供保存 / 试跑 / 求值共用。
+	ctxData := func(v any) map[string]any {
+		return map[string]any{proj.Logo: map[string]any{"material": map[string]any{"vertical_type": v}}}
+	}
 
 	// 3. 建 type=rule 的配置（v1）
 	cfg := &model.Config{
@@ -55,10 +63,10 @@ func TestRuleLifecycle(t *testing.T) {
 	t.Cleanup(func() { _ = data.DeleteConfig(ctx, cfg.ID) })
 
 	// 4. 保存规则（编译 + 收集 bind_var）
-	ruleSrc := fmt.Sprintf("def judge():\n  if ##%d**material.vertical_type## in (0,1,5):\n    return 1\n  return 0\nresult = judge()", fld.ID)
+	ruleSrc := fmt.Sprintf("def judge():\n  if ##%d**%s## in (0,1,5):\n    return 1\n  return 0\nresult = judge()", fld.ID, parsePath)
 	resp, err := service.SaveRule(ctx, "tester", &model.SaveRuleRequest{
 		ConfigID: cfg.ID, Rule: ruleSrc, ResultType: model.ResultTypePassRejectReview,
-		TestData: map[string]any{"material": map[string]any{"vertical_type": 1}},
+		TestData: ctxData(1),
 	})
 	if err != nil {
 		t.Fatalf("保存规则失败: %v", err)
@@ -70,10 +78,10 @@ func TestRuleLifecycle(t *testing.T) {
 	// 4.1 返回值类型混用的规则必须被保存闸门拒绝
 	// （强类型约定：同一函数不能既 return True 又 return 0，否则同一份规则
 	//   在不同分支会产出 bool / int 两种结果类型）
-	mixedSrc := fmt.Sprintf("def judge():\n  if ##%d**material.vertical_type## in (0,1,5):\n    return True\n  return 0\nresult = judge()", fld.ID)
+	mixedSrc := fmt.Sprintf("def judge():\n  if ##%d**%s## in (0,1,5):\n    return True\n  return 0\nresult = judge()", fld.ID, parsePath)
 	if _, err := service.SaveRule(ctx, "tester", &model.SaveRuleRequest{
 		ConfigID: cfg.ID, Rule: mixedSrc, ResultType: model.ResultTypePassRejectReview,
-		TestData: map[string]any{"material": map[string]any{"vertical_type": 1}},
+		TestData: ctxData(1),
 	}); err == nil {
 		t.Error("返回值类型混用（bool + int）的规则应被拒绝保存")
 	} else if !strings.Contains(err.Error(), "结果类型") {
@@ -83,7 +91,7 @@ func TestRuleLifecycle(t *testing.T) {
 	// 5. 现场验证（命中 → return 1）
 	tr, err := service.TestRun(ctx, &model.TestRunRequest{
 		Rule: ruleSrc, ResultType: model.ResultTypePassRejectReview,
-		Data: map[string]any{"material": map[string]any{"vertical_type": float64(1)}},
+		Data: ctxData(float64(1)),
 	})
 	if err != nil {
 		t.Fatalf("验证失败: %v", err)
@@ -100,7 +108,7 @@ func TestRuleLifecycle(t *testing.T) {
 	// 7. 编辑生效版本 → fork 新版本 v2（status=0）
 	resp2, err := service.SaveRule(ctx, "tester", &model.SaveRuleRequest{
 		ConfigID: cfg.ID, Rule: ruleSrc, ResultType: model.ResultTypePassRejectReview,
-		TestData: map[string]any{"material": map[string]any{"vertical_type": 1}},
+		TestData: ctxData(1),
 	})
 	if err != nil {
 		t.Fatalf("编辑生效版本失败: %v", err)
@@ -122,7 +130,7 @@ func TestRuleLifecycle(t *testing.T) {
 	// 9. 求值（灰度期，默认路径，返回结果应为 1 或 0 都合法，验证链路不报错）
 	ev, err := service.Eval(ctx, &model.EvalRequest{
 		Pack: proj.Logo, Key: cfg.Logo,
-		Data: map[string]any{"material": map[string]any{"vertical_type": float64(1)}},
+		Data: ctxData(float64(1)),
 	})
 	if err != nil {
 		t.Fatalf("求值失败: %v", err)
@@ -242,9 +250,11 @@ func TestCreateRuleConfig(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = data.DeleteConfigPack(ctx, cp.ID) })
 
+	// 解析路径带「项目标识」前缀，入参按 {"<项目标识>": {...}} 命名空间传递，与领域规则一致。
+	parsePath := proj.Logo + ".material.vertical_type"
 	fld := &model.Field{
 		ProjectID: fmt.Sprintf("%d", proj.ID), Name: "资源类型", Type: model.FieldTypeInt,
-		DefaultValue: `{"type":"int","value":-1}`, ParsePath: "material.vertical_type",
+		DefaultValue: `{"type":"int","value":-1}`, ParsePath: parsePath,
 		Status: model.FieldStatusActive, CreatedUser: "tester", UpdatedUser: "tester",
 		CreatedAt: now, UpdatedAt: now,
 	}
@@ -253,8 +263,12 @@ func TestCreateRuleConfig(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = data.DeleteField(ctx, fld.ID) })
 
+	ctxData := func(v any) map[string]any {
+		return map[string]any{proj.Logo: map[string]any{"material": map[string]any{"vertical_type": v}}}
+	}
+
 	logo := "cfg_n_" + suffix
-	ruleSrc := fmt.Sprintf("def judge():\n  if ##%d**material.vertical_type## in (0,1,5):\n    return 1\n  return 0\nresult = judge()", fld.ID)
+	ruleSrc := fmt.Sprintf("def judge():\n  if ##%d**%s## in (0,1,5):\n    return 1\n  return 0\nresult = judge()", fld.ID, parsePath)
 	resp, err := service.CreateRuleConfig(ctx, "tester", &model.CreateRuleConfigRequest{
 		ProjectID:    fmt.Sprintf("%d", proj.ID),
 		ConfigPackID: cp.ID,
@@ -262,7 +276,7 @@ func TestCreateRuleConfig(t *testing.T) {
 		Logo:         logo,
 		Rule:         ruleSrc,
 		ResultType:   model.ResultTypePassRejectReview,
-		TestData:     map[string]any{"material": map[string]any{"vertical_type": 1}},
+		TestData:     ctxData(1),
 	})
 	if err != nil {
 		t.Fatalf("一步建规则失败: %v", err)
@@ -283,7 +297,7 @@ func TestCreateRuleConfig(t *testing.T) {
 		Logo:         logo,
 		Rule:         "result = 0",
 		ResultType:   model.ResultTypePassRejectReview,
-		TestData:     map[string]any{"material": map[string]any{"vertical_type": 1}},
+		TestData:     ctxData(1),
 	}); err == nil {
 		t.Error("同 logo 二次创建应被拒绝（同一标识后续版本走 fork）")
 	}

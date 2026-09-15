@@ -21,6 +21,7 @@ import (
 	"myproject/internal/resource"
 	"myproject/internal/router"
 	"myproject/pkg/auth"
+	"myproject/pkg/cache"
 	"myproject/pkg/database"
 	"myproject/pkg/health"
 	"myproject/pkg/logger"
@@ -31,7 +32,9 @@ import (
 var (
 	testEngine http.Handler
 	testDB     *gorm.DB
+	testRedis  *cache.RedisClient
 	dbSkip     string
+	redisSkip  string
 )
 
 // TestMain 全局初始化：连库 → 建表 → 注入 resource → 构建引擎。
@@ -49,6 +52,9 @@ func TestMain(m *testing.M) {
 		if sqlDB, err := testDB.DB(); err == nil {
 			_ = sqlDB.Close()
 		}
+	}
+	if testRedis != nil {
+		_ = testRedis.Close()
 	}
 	os.Exit(code)
 }
@@ -91,8 +97,26 @@ func setup() error {
 		}
 	}
 
+	// Redis：连不上不终止（与 DB 同样策略），只记原因；缓存类用例据此跳过而不是静默变绿。
+	if cfg.Redis.Enabled {
+		rc, rerr := cache.NewRedis(cache.Options{
+			Host:     cfg.Redis.Host,
+			Port:     cfg.Redis.Port,
+			Password: cfg.Redis.Password,
+			DB:       cfg.Redis.DB,
+		})
+		if rerr != nil {
+			redisSkip = fmt.Sprintf("连接 Redis 失败（%s:%d/%d）: %v",
+				cfg.Redis.Host, cfg.Redis.Port, cfg.Redis.DB, rerr)
+		} else {
+			testRedis = rc
+		}
+	} else {
+		redisSkip = "配置中 redis.enabled=false"
+	}
+
 	health.Init(time.Second, 0)
-	resource.Set(cfg, db, nil, auth.NewJWTManager(cfg.JWT.Secret, time.Hour, "myproject-test"))
+	resource.Set(cfg, db, testRedis, auth.NewJWTManager(cfg.JWT.Secret, time.Hour, "myproject-test"))
 
 	engine, err := router.Setup(cfg)
 	if err != nil {
@@ -116,5 +140,15 @@ func requireDB(t *testing.T) {
 	t.Helper()
 	if testDB == nil {
 		t.Skipf("跳过真库用例: %s（设置 APP_DATABASE_HOST/USERNAME/PASSWORD/DBNAME 或 make docker-up 后重跑）", dbSkip)
+	}
+}
+
+// requireRedis 缓存类用例的前置：需要真库 + 可用 Redis，任一缺失即跳过并打印原因。
+// 缓存行为（快照投放/失效）只有连真 Redis 才能断言，用 nil Redis 跑等于没验。
+func requireRedis(t *testing.T) {
+	t.Helper()
+	requireDB(t)
+	if testRedis == nil {
+		t.Skipf("跳过缓存用例: %s（设置 APP_REDIS_HOST/PASSWORD 后重跑）", redisSkip)
 	}
 }

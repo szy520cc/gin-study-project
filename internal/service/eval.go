@@ -70,7 +70,9 @@ func resolveSnapshot(ctx context.Context, req *model.EvalRequest) *model.ConfigS
 			return nil
 		}
 		snap, _ := buildSnapshot(ctx, c)
-		_ = data.SetSnapshot(ctx, req.Pack, req.Key, req.Version, snap)
+		// 显式 version 分支只读不写缓存：该分支可能指向「待审核草稿」，
+		// 而草稿会被原地编辑（版本号不变）——一旦写入版本化快照，就会在
+		// 发布后被默认路径命中，导致线上执行旧规则（TTL 内难以察觉）。
 		return snap
 	}
 

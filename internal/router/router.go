@@ -124,12 +124,14 @@ func registerAPIRoutes(r *gin.Engine, cfg *config.Config) {
 	registerField(v1, auth)
 	registerConfigPack(v1, auth)
 	registerConfig(v1, auth)
-	registerEngine(v1)
+	registerEngine(v1, cfg)
 }
 
-// registerEngine 规则执行引擎接口（供程序调用，不挂 auth，见 controller.Eval 安全说明）
-func registerEngine(g *gin.RouterGroup) {
-	g.POST("/engine/eval", controller.Eval)
+// registerEngine 规则执行引擎接口（供程序调用）。
+// 不挂用户登录态（程序没有用户 JWT），改为服务令牌 + 可选 IP 白名单，见 middleware.ServiceAuth。
+func registerEngine(g *gin.RouterGroup, cfg *config.Config) {
+	auth := middleware.ServiceAuth(cfg.Engine.Auth.Tokens, cfg.Engine.Auth.InternalTokens, cfg.Engine.Auth.AllowCIDRs)
+	g.POST("/engine/eval", auth, controller.Eval)
 }
 
 // registerUser 用户模块路由

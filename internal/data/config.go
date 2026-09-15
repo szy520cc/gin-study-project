@@ -4,6 +4,8 @@ import (
 	"context"
 
 	"myproject/internal/model"
+
+	"gorm.io/gorm/clause"
 )
 
 // CreateConfig 插入配置
@@ -197,4 +199,53 @@ func UpdateConfigCut(ctx context.Context, id uint64, cutNum float64, cutVersion,
 			"cut_by":      operator,
 			"cut_at":      now,
 		}).Error
+}
+
+// ClearConfigCut 清空切流字段（取消切流用）：回到「从未切流」的干净状态，
+// 不留操作者/时间残留（口径与 OfflineOtherVersions 的清空一致）。
+func ClearConfigCut(ctx context.Context, id uint64) error {
+	return connDb(ctx).Model(&model.Config{}).
+		Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"cut_num":     0,
+			"cut_version": "",
+			"cut_by":      "",
+			"cut_at":      0,
+		}).Error
+}
+
+// LockConfigsByLogo 锁定同 logo 的全部版本行（SELECT ... FOR UPDATE）。
+//
+// 必须在本包事务内调用（见 pkg/transaction）：用于把「发布 / 切流」这类
+// 「读状态 → 写状态」的多步操作串行化，避免并发交错。发布与切流共用本函数，
+// 因此二者互斥（同一 logo 同一时刻只有一个在推进）。
+func LockConfigsByLogo(ctx context.Context, logo string) ([]*model.Config, error) {
+	var list []*model.Config
+	err := connDb(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("logo = ?", logo).Order("id").Find(&list).Error
+	return list, err
+}
+
+// RestoreLatest 把「最新版本（is_latest=1）」标记归还给同 logo 下剩余的版本：
+// 优先生效版本（status=1），没有生效版本则取 id 最大的版本；已无任何版本时不动。
+//
+// 用于删除 is_latest 版本后的修正：否则 is_latest=1 在库里查不到任何行，
+// 「最新草稿」这条语义失效（列表按 id 聚合仍可用，但语义不自洽）。
+func RestoreLatest(ctx context.Context, logo string) error {
+	var c model.Config
+	err := connDb(ctx).Where("logo = ? AND status = ?", logo, model.ConfigStatusActive).
+		Order("id DESC").First(&c).Error
+	if err != nil {
+		if !IsNotFound(err) {
+			return err
+		}
+		if err := connDb(ctx).Where("logo = ?", logo).Order("id DESC").First(&c).Error; err != nil {
+			if IsNotFound(err) {
+				return nil // 该 logo 已无任何版本
+			}
+			return err
+		}
+	}
+	return connDb(ctx).Model(&model.Config{}).Where("id = ?", c.ID).
+		Update("is_latest", model.ConfigLatestYes).Error
 }

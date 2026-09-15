@@ -24,6 +24,7 @@ type Config struct {
 	JWT       JWTConfig       `mapstructure:"jwt"`
 	CORS      CORSConfig      `mapstructure:"cors"`
 	RateLimit RateLimitConfig `mapstructure:"rate_limit"`
+	Engine    EngineConfig    `mapstructure:"engine"`
 }
 
 // 合法的部署环境。白名单化的理由见 Load：
@@ -144,6 +145,28 @@ type RateLimitConfig struct {
 	AuthBurst int     `mapstructure:"auth_burst"`
 }
 
+// EngineConfig 规则执行引擎「对外服务接口」的配置（当前仅 /engine/eval）。
+type EngineConfig struct {
+	Auth EngineAuthConfig `mapstructure:"auth"`
+	// AllowOfflineDraft 是否允许 eval 通过 offline_flag 读取「未发布的草稿」。
+	// 草稿绕过发布链（内容未经过保存闸门验证），默认关闭；
+	// 即使开启，也仍要求调用方出示内部令牌（见 EngineAuthConfig.InternalTokens）。
+	AllowOfflineDraft bool `mapstructure:"allow_offline_draft"`
+}
+
+// EngineAuthConfig /engine/eval 的鉴权配置（A 服务令牌为主 + B IP 白名单可选叠加）。
+//
+//   - Tokens：普通服务令牌，调用方经 X-Service-Token 头或 Authorization: Bearer 出示，
+//     只能走「默认（已发布指针）」或「显式 version」求值；
+//   - InternalTokens：高权限令牌，可额外使用 offline_flag 读草稿（需 AllowOfflineDraft=true）；
+//   - AllowCIDRs：可选 IP 白名单。一旦配置，调用方还必须来自这些网段（与令牌是「叠加」关系，
+//     即「令牌正确 且 IP 在白名单内」才放行）。需配合 server.trusted_proxies 才能取到真实 IP。
+type EngineAuthConfig struct {
+	Tokens         []string `mapstructure:"tokens"`
+	InternalTokens []string `mapstructure:"internal_tokens"`
+	AllowCIDRs     []string `mapstructure:"allow_cidrs"`
+}
+
 // IsProd 是否生产环境。
 // 依据是部署环境 Env（启动参数 -env / APP_ENV），不是 server.mode ——
 // mode 可被 APP_SERVER_MODE 覆盖，用它判定会让生产强校验和
@@ -220,6 +243,12 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("rate_limit.burst", 100)
 	v.SetDefault("rate_limit.auth_rps", 1)
 	v.SetDefault("rate_limit.auth_burst", 5)
+
+	// 对外服务接口鉴权默认「未配置」：非生产放行并告警，生产由 Validate 拒绝启动。
+	v.SetDefault("engine.auth.tokens", []string{})
+	v.SetDefault("engine.auth.internal_tokens", []string{})
+	v.SetDefault("engine.auth.allow_cidrs", []string{})
+	v.SetDefault("engine.allow_offline_draft", false)
 
 	// 以下 key 允许「只从环境变量注入」，因此必须在这里登记一个空默认值。
 	// 原因：BindEnv 只能作用于已知的 key，而 v.AllKeys() 不包含
@@ -315,6 +344,13 @@ func Load(path string, env string) (*Config, error) {
 		_ = v.BindEnv(key)
 	}
 
+	// 切片型配置（服务令牌 / IP 白名单）改用「逗号分隔」的环境变量注入：
+	// viper 的 AutomaticEnv 只能把 env 值当字符串返回，Unmarshal 到 []string 会因类型不符失败。
+	// 这里显式解析后用 v.Set 写入（Set 优先级最高，因此 env 覆盖 yaml）。
+	applyEnvSlice(v, "engine.auth.tokens", "APP_ENGINE_AUTH_TOKENS")
+	applyEnvSlice(v, "engine.auth.internal_tokens", "APP_ENGINE_AUTH_INTERNAL_TOKENS")
+	applyEnvSlice(v, "engine.auth.allow_cidrs", "APP_ENGINE_AUTH_ALLOW_CIDRS")
+
 	cfg := &Config{}
 	if err := v.Unmarshal(cfg); err != nil {
 		return nil, fmt.Errorf("解析配置文件失败: %w", err)
@@ -336,6 +372,23 @@ func isValidEnv(env string) bool {
 		}
 	}
 	return false
+}
+
+// applyEnvSlice 把逗号分隔的环境变量解析成字符串切片并写入 viper（优先级最高）。
+// 环境变量未设置或为空时不动，保留 yaml / 默认值。
+func applyEnvSlice(v *viper.Viper, key, envName string) {
+	raw := strings.TrimSpace(os.Getenv(envName))
+	if raw == "" {
+		return
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	v.Set(key, out)
 }
 
 // bootLog 启动阶段日志：此时主日志系统尚未初始化

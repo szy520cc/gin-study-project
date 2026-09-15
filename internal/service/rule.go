@@ -167,6 +167,11 @@ func SaveRule(ctx context.Context, username string, req *model.SaveRuleRequest) 
 	// 编辑必删 latest：草稿快照不带版本号，改了草稿必须失效，
 	// 否则 offline 请求会读到旧草稿（最长脏 7 天）。
 	_ = data.DelLatest(ctx, pack, c.Logo)
+	// 同时失效该版本的「版本化快照」：原地编辑草稿时版本号不变，
+	// 若不删，曾被显式 version 求值写入的旧快照会在发布后被默认路径命中。
+	_ = data.DelSnapshot(ctx, pack, c.Logo, resp.Version)
+	// 若改的正是灰度目标版本，还要失效生效版本快照（否则灰度继续跑旧草稿规则）。
+	invalidateGraySnapshotForDraft(ctx, pack, c.Logo, resp.Version)
 	return resp, nil
 }
 
@@ -234,6 +239,10 @@ func UpdateRuleConfig(ctx context.Context, username string, req *model.UpdateRul
 	}
 	// 编辑必删 latest（与 SaveRule 一致）
 	_ = data.DelLatest(ctx, pack, c.Logo)
+	// 同时失效该版本的「版本化快照」（同 SaveRule，防止原地编辑后旧快照被发布后命中）。
+	_ = data.DelSnapshot(ctx, pack, c.Logo, resp.Version)
+	// 若改的正是灰度目标版本，还要失效生效版本快照（否则灰度继续跑旧草稿规则）。
+	invalidateGraySnapshotForDraft(ctx, pack, c.Logo, resp.Version)
 	return resp, nil
 }
 
