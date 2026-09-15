@@ -1,0 +1,24 @@
+# 行尾统一策略：文本文件一律以 LF 存储，工作区也用 LF。
+#
+# 背景：本仓库此前没有 .gitattributes，135 个已跟踪文件里 33 个以 CRLF 存储、99 个以 LF 存储。
+# 混合行尾的代价：编辑器/工具对 CRLF 文件写入 LF（或反之）会让 git 把「整文件」判为修改，
+# 而真实改动可能只有几行 —— 评审与 diff 全被行尾噪声淹没。
+#
+# 为什么选 LF 而不是 CRLF：仓库内 LF 已占多数，且 Go / JS / CSS 生态默认 LF。
+* text=auto eol=lf
+
+# Windows 批处理/脚本保持 CRLF：部分工具对 LF 结尾的 .bat 解析异常
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+*.ps1  text eol=crlf
+
+# 二进制资源：禁止任何行尾转换
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.eot   binary
