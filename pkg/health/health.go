@@ -108,7 +108,8 @@ func (r *Registry) Check(ctx context.Context) Report {
 	// 一次 curl 中途 Ctrl-C 就能让健康实例被 LB 摘掉。
 	//
 	// 但断开取消链之后必须自己补一个兜底 deadline：r.timeout 只对「尊重 ctx」的
-	// checker 有效，Checker 是导出接口，塞一个同步 net.Dial 进来就能让 check 永不返回。
+	// checker 有效，而 checker 的实现由调用方经 RegisterFunc 传入，塞一个同步
+	// net.Dial 进来就能让 check 永不返回。
 	probeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), r.overallTimeout())
 	defer cancel()
 

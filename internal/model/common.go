@@ -20,6 +20,20 @@ type PageRequest struct {
 	PageSize int `form:"page_size" binding:"omitempty,min=1,max=100"`
 }
 
+// IDRequest 只带主键的请求体（POST + JSON body 形态）。
+//
+// delete / publish 这类「按主键操作一个资源」的接口共用：字段与校验完全一致，
+// 每个模块各定义一份 XxxRequest 只会多出 N 份同形同义的结构体。
+// 若某个接口将来需要额外参数（如 publish 加 force），再从本类型拆出独立结构体。
+type IDRequest struct {
+	ID uint64 `json:"id" binding:"required"`
+}
+
+// IDQueryRequest 只带主键的查询参数（GET + query 形态），用于 ?id= 取详情/回填。
+type IDQueryRequest struct {
+	ID uint64 `form:"id" binding:"required"`
+}
+
 // Normalize 归一化分页参数，返回实际生效的值（用于响应回显）
 func (p PageRequest) Normalize() (int, int) {
 	return NormalizePage(p.Page, p.PageSize)

@@ -108,7 +108,7 @@ func Publish(ctx context.Context, configID uint64) (*model.ConfigResponse, error
 //  2. 取待上线版本（status=0）；
 //  3. 查同 logo 的当前生效版本（status=1）——灰度状态挂在老版本行上；
 //  4. 写老版本行的 cut_num/cut_version/cut_by/cut_at；
-//  5. 组装「老版本全量 + 新版本 NewVersionDetail」快照，写版本化 key（7 天 TTL）。
+//  5. 组装「老版本全量 + 新版本 NewVersion」快照，写版本化 key（7 天 TTL）。
 func CutProgress(ctx context.Context, username string, req *model.CutProgressRequest) (*model.ConfigResponse, error) {
 	// ① 切流比例范围校验：0 表示取消切流；正常切流必须在 (0,1)
 	if req.CutNum < 0 || req.CutNum >= 1 {

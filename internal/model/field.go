@@ -89,11 +89,6 @@ type UpdateFieldRequest struct {
 	Remark       string `json:"remark" binding:"max=2000"`
 }
 
-// DeleteFieldRequest 删除字段请求
-type DeleteFieldRequest struct {
-	ID uint64 `json:"id" binding:"required"`
-}
-
 // FieldListRequest 字段列表请求
 type FieldListRequest struct {
 	Page      int    `form:"page" binding:"omitempty,min=1,max=10000"`
@@ -102,11 +97,6 @@ type FieldListRequest struct {
 	Name      string `form:"name" binding:"omitempty,max=200"`
 	Type      string `form:"type" binding:"omitempty,oneof=int float string bool array object"`
 	Status    *uint8 `form:"status" binding:"omitempty"`
-}
-
-// FieldQueryRequest 按主键查询（query 传 id）
-type FieldQueryRequest struct {
-	ID uint64 `form:"id" binding:"required"`
 }
 
 // FieldResponse 字段响应

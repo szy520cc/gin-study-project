@@ -44,7 +44,7 @@ func ReadLogin() ([]byte, error) { return assets.ReadFile("assets/login.html") }
 
 // ReadSchema 返回 web/pages/ 下的 amis schema JSON。
 //
-// 文件名必须包含 ".json" 前缀，例如 "/login.json"。
+// 文件名必须以 ".json" 结尾（路由 /admin/pages/*.json 保证），例如 "/login.json"。
 func ReadSchema(name string) ([]byte, error) {
 	return assets.ReadFile("assets/pages" + name)
 }

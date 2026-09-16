@@ -58,16 +58,6 @@ type UpdateProjectRequest struct {
 	Status uint8  `json:"status" binding:"required,oneof=1 2"`
 }
 
-// DeleteProjectRequest 删除项目请求
-type DeleteProjectRequest struct {
-	ID uint64 `json:"id" binding:"required"`
-}
-
-// ProjectQueryRequest 按主键查询单个项目请求（query 传 id）
-type ProjectQueryRequest struct {
-	ID uint64 `form:"id" binding:"required"`
-}
-
 // ProjectListRequest 项目列表请求
 type ProjectListRequest struct {
 	Page     int    `form:"page" binding:"omitempty,min=1,max=10000"`

@@ -16,6 +16,11 @@ import (
 // 之前 test/setup 传的是 nil Redis，SetSnapshot/DelSnapshot 全是 no-op，
 // 等于这些行为没有任何断言 —— 所以这里接真 Redis，连不上时 requireRedis 跳过而不是变绿。
 
+// cacheGrayName 缓存用例里「线上版本」的配置名。
+// 用于 fork 时回填 name（UpdateRuleConfig 需要 name，且它会把 name 写到 fork 出的新版本）；
+// 用例不断言名称，这里保持一致只为可读性。
+const cacheGrayName = "线上规则"
+
 // cacheFixture 缓存用例的公共装置：项目 + 字段（解析路径带项目标识前缀）。
 type cacheFixture struct {
 	proj      *model.Project
@@ -97,8 +102,8 @@ func (f *cacheFixture) createDraft(t *testing.T, name, logoPrefix string) *model
 // forkDraft 编辑生效版本 → fork 出新草稿（不可变发布链）。
 func (f *cacheFixture) forkDraft(t *testing.T, configID uint64) *model.RuleResponse {
 	t.Helper()
-	resp, err := service.SaveRule(context.Background(), "tester", &model.SaveRuleRequest{
-		ConfigID: configID, Rule: f.rule(), ResultType: model.ResultTypePassRejectReview,
+	resp, err := service.UpdateRuleConfig(context.Background(), "tester", &model.UpdateRuleConfigRequest{
+		ConfigID: configID, Name: cacheGrayName, Rule: f.rule(), ResultType: model.ResultTypePassRejectReview,
 		TestData: f.data(1),
 	})
 	if err != nil {
@@ -174,8 +179,8 @@ func TestEditDraftInvalidatesVersionedSnapshot(t *testing.T) {
 		t.Fatal("前置失败：预置快照未写入")
 	}
 
-	if _, err := service.SaveRule(ctx, "tester", &model.SaveRuleRequest{
-		ConfigID: v1.ConfigID, Rule: f.rule(), ResultType: model.ResultTypePassRejectReview,
+	if _, err := service.UpdateRuleConfig(ctx, "tester", &model.UpdateRuleConfigRequest{
+		ConfigID: v1.ConfigID, Name: v1.Name, Rule: f.rule(), ResultType: model.ResultTypePassRejectReview,
 		TestData: f.data(1),
 	}); err != nil {
 		t.Fatalf("原地编辑草稿失败: %v", err)
@@ -253,8 +258,8 @@ func TestEditDraftDuringGrayInvalidatesActiveSnapshot(t *testing.T) {
 	}
 
 	// 灰度期间原地编辑待上线版本
-	if _, err := service.SaveRule(ctx, "tester", &model.SaveRuleRequest{
-		ConfigID: v2.ConfigID, Rule: f.rule(), ResultType: model.ResultTypePassRejectReview,
+	if _, err := service.UpdateRuleConfig(ctx, "tester", &model.UpdateRuleConfigRequest{
+		ConfigID: v2.ConfigID, Name: v2.Name, Rule: f.rule(), ResultType: model.ResultTypePassRejectReview,
 		TestData: f.data(1),
 	}); err != nil {
 		t.Fatalf("灰度期编辑草稿失败: %v", err)

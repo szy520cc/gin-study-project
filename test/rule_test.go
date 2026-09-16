@@ -64,8 +64,8 @@ func TestRuleLifecycle(t *testing.T) {
 
 	// 4. 保存规则（编译 + 收集 bind_var）
 	ruleSrc := fmt.Sprintf("def judge():\n  if ##%d**%s## in (0,1,5):\n    return 1\n  return 0\nresult = judge()", fld.ID, parsePath)
-	resp, err := service.SaveRule(ctx, "tester", &model.SaveRuleRequest{
-		ConfigID: cfg.ID, Rule: ruleSrc, ResultType: model.ResultTypePassRejectReview,
+	resp, err := service.UpdateRuleConfig(ctx, "tester", &model.UpdateRuleConfigRequest{
+		ConfigID: cfg.ID, Name: cfg.Name, Rule: ruleSrc, ResultType: model.ResultTypePassRejectReview,
 		TestData: ctxData(1),
 	})
 	if err != nil {
@@ -79,8 +79,8 @@ func TestRuleLifecycle(t *testing.T) {
 	// （强类型约定：同一函数不能既 return True 又 return 0，否则同一份规则
 	//   在不同分支会产出 bool / int 两种结果类型）
 	mixedSrc := fmt.Sprintf("def judge():\n  if ##%d**%s## in (0,1,5):\n    return True\n  return 0\nresult = judge()", fld.ID, parsePath)
-	if _, err := service.SaveRule(ctx, "tester", &model.SaveRuleRequest{
-		ConfigID: cfg.ID, Rule: mixedSrc, ResultType: model.ResultTypePassRejectReview,
+	if _, err := service.UpdateRuleConfig(ctx, "tester", &model.UpdateRuleConfigRequest{
+		ConfigID: cfg.ID, Name: cfg.Name, Rule: mixedSrc, ResultType: model.ResultTypePassRejectReview,
 		TestData: ctxData(1),
 	}); err == nil {
 		t.Error("返回值类型混用（bool + int）的规则应被拒绝保存")
@@ -106,8 +106,8 @@ func TestRuleLifecycle(t *testing.T) {
 	}
 
 	// 7. 编辑生效版本 → fork 新版本 v2（status=0）
-	resp2, err := service.SaveRule(ctx, "tester", &model.SaveRuleRequest{
-		ConfigID: cfg.ID, Rule: ruleSrc, ResultType: model.ResultTypePassRejectReview,
+	resp2, err := service.UpdateRuleConfig(ctx, "tester", &model.UpdateRuleConfigRequest{
+		ConfigID: cfg.ID, Name: cfg.Name, Rule: ruleSrc, ResultType: model.ResultTypePassRejectReview,
 		TestData: ctxData(1),
 	})
 	if err != nil {
@@ -180,8 +180,8 @@ func TestSaveRuleTypeGuard(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = data.DeleteConfig(ctx, cfg.ID) })
 
-	if _, err := service.SaveRule(ctx, "tester", &model.SaveRuleRequest{
-		ConfigID: cfg.ID, Rule: "result = 1", ResultType: model.ResultTypePassRejectReview,
+	if _, err := service.UpdateRuleConfig(ctx, "tester", &model.UpdateRuleConfigRequest{
+		ConfigID: cfg.ID, Name: cfg.Name, Rule: "result = 1", ResultType: model.ResultTypePassRejectReview,
 	}); err == nil {
 		t.Error("对非规则类型 config 保存规则应被拒绝")
 	}

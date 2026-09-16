@@ -55,7 +55,7 @@ func DeleteConfigPack(c *gin.Context) {
 		return
 	}
 
-	var req model.DeleteConfigPackRequest
+	var req model.IDRequest
 	if !bindJSON(c, &req) {
 		return
 	}
@@ -96,7 +96,7 @@ func GetConfigPack(c *gin.Context) {
 		return
 	}
 
-	var req model.ConfigPackQueryRequest
+	var req model.IDQueryRequest
 	if !bindQuery(c, &req) {
 		return
 	}

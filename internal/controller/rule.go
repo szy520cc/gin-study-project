@@ -29,27 +29,8 @@ func CreateRuleConfig(c *gin.Context) {
 	response.Success(c, resp)
 }
 
-// SaveRule 保存规则（含编译 + fork 语义）
-// @Router /api/v1/configs/rule/save [post]
-func SaveRule(c *gin.Context) {
-	if _, ok := middleware.RequireUserID(c); !ok {
-		return
-	}
-
-	var req model.SaveRuleRequest
-	if !bindJSON(c, &req) {
-		return
-	}
-
-	resp, err := service.SaveRule(c.Request.Context(), middleware.Username(c), &req)
-	if err != nil {
-		response.Error(c, err)
-		return
-	}
-	response.Success(c, resp)
-}
-
-// UpdateRuleConfig 整配置一次保存（基本信息 + 规则内容，含 fork 语义）
+// UpdateRuleConfig 保存规则（基本信息 + 规则内容，含编译与 fork 语义）
+// 规则保存的唯一入口（原 /configs/rule/save 已合并进本接口）。
 // @Router /api/v1/configs/rule/update [post]
 func UpdateRuleConfig(c *gin.Context) {
 	if _, ok := middleware.RequireUserID(c); !ok {
@@ -76,7 +57,7 @@ func GetRule(c *gin.Context) {
 		return
 	}
 
-	var req model.ConfigQueryRequest
+	var req model.IDQueryRequest
 	if !bindQuery(c, &req) {
 		return
 	}

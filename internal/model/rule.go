@@ -94,18 +94,6 @@ type RuleConditionConfig struct {
 	Rule    string  `json:"rule"`     // 含占位符的规则原文
 }
 
-// SaveRuleRequest 保存规则请求。
-// 规则挂在 config（type=rule）下；编辑生效版本时会 fork 新版本，返回新 config 信息。
-//
-// TestData 是「试跑入参」，保存闸门必填：服务端会拿它真实执行一遍规则，
-// 跑不通就拒绝落库（见 service.ensureRuleRunnable）。兼容 JSON 对象或 JSON 对象字符串。
-type SaveRuleRequest struct {
-	ConfigID   uint64      `json:"config_id" binding:"required"`
-	Rule       string      `json:"rule" binding:"required"` // 含占位符的规则原文
-	ResultType string      `json:"result_type" binding:"required,oneof=pass_reject_review hit_result json"`
-	TestData   interface{} `json:"test_data"` // 试跑入参（必填，服务端据此真实执行规则）
-}
-
 // CreateRuleConfigRequest 一步创建「type=rule 配置 + 规则内容」请求（规则管理页「新增规则」）。
 // 版本号由后端自动生成（时间戳），type 固定为 rule；logo 需为全新标识
 // （同一标识的后续版本只能通过编辑已有版本 fork 产生）。
@@ -201,11 +189,6 @@ type BindVarResult struct {
 	Value         interface{} `json:"value"` // 实际提取值（取不到时为默认值）
 	Hit           bool        `json:"hit"`   // 是否从输入里成功取到
 	Default       interface{} `json:"default"`
-}
-
-// PublishRequest 全量发布请求（发布待审核版本，body 带 config id）。
-type PublishRequest struct {
-	ID uint64 `json:"id" binding:"required"`
 }
 
 // CutProgressRequest 灰度切流请求。

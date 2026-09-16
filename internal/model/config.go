@@ -20,6 +20,7 @@ import "fmt"
 //	  `cut_num` double NOT NULL DEFAULT '0',
 //	  `cut_at` int unsigned NOT NULL DEFAULT '0',
 //	  `cut_version` varchar(50) NOT NULL DEFAULT '',
+//	  `cut_by` varchar(50) NOT NULL DEFAULT '',
 //	  UNIQUE KEY `idx_logo_version` (`logo`,`version`),
 //	  KEY `idx_config_pack_id` (`config_pack_id`)
 //	)
@@ -82,41 +83,6 @@ func FormatCutProgress(cutNum float64) string {
 	return fmt.Sprintf("%.0f%%", cutNum*100)
 }
 
-// CreateConfigRequest 创建配置请求
-type CreateConfigRequest struct {
-	ProjectID    string  `json:"project_id" binding:"required,max=100"`
-	ConfigPackID uint64  `json:"config_pack_id" binding:"required"`
-	Name         string  `json:"name" binding:"required,max=200"`
-	Logo         string  `json:"logo" binding:"required,max=200"`
-	Type         string  `json:"type" binding:"required,max=50"`
-	Version      string  `json:"version" binding:"required,max=50"`
-	Status       uint8   `json:"status" binding:"omitempty,oneof=0 1 2"`
-	IsLatest     uint8   `json:"is_latest" binding:"omitempty,oneof=1 2"`
-	Remark       string  `json:"remark" binding:"max=2000"`
-	CutNum       float64 `json:"cut_num" binding:"omitempty,min=0"`
-	CutAt        int64   `json:"cut_at" binding:"omitempty,min=0"`
-	CutVersion   string  `json:"cut_version" binding:"max=50"`
-}
-
-// UpdateConfigRequest 更新配置请求。
-// 不含 project_id/config_pack_id/logo/version（身份字段创建后不可改）。
-type UpdateConfigRequest struct {
-	ID         uint64  `json:"id" binding:"required"`
-	Name       string  `json:"name" binding:"required,max=200"`
-	Type       string  `json:"type" binding:"required,max=50"`
-	Status     uint8   `json:"status" binding:"omitempty,oneof=0 1 2"`
-	IsLatest   uint8   `json:"is_latest" binding:"omitempty,oneof=1 2"`
-	Remark     string  `json:"remark" binding:"max=2000"`
-	CutNum     float64 `json:"cut_num" binding:"omitempty,min=0"`
-	CutAt      int64   `json:"cut_at" binding:"omitempty,min=0"`
-	CutVersion string  `json:"cut_version" binding:"max=50"`
-}
-
-// DeleteConfigRequest 删除配置请求
-type DeleteConfigRequest struct {
-	ID uint64 `json:"id" binding:"required"`
-}
-
 // ConfigListRequest 配置列表请求
 type ConfigListRequest struct {
 	Page     int `form:"page" binding:"omitempty,min=1,max=10000"`
@@ -128,11 +94,6 @@ type ConfigListRequest struct {
 	Type         string `form:"type" binding:"omitempty,max=50"`
 	Status       *uint8 `form:"status" binding:"omitempty,oneof=0 1 2"`
 	IsLatest     *uint8 `form:"is_latest" binding:"omitempty"`
-}
-
-// ConfigQueryRequest 按主键查询（query 传 id）
-type ConfigQueryRequest struct {
-	ID uint64 `form:"id" binding:"required"`
 }
 
 // ConfigResponse 配置响应

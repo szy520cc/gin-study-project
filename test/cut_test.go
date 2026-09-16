@@ -63,8 +63,8 @@ func TestCutCancelClearsFieldsAndIdempotent(t *testing.T) {
 	}
 
 	// 编辑线上版本 → fork 出 v2（待审核）
-	v2, err := service.SaveRule(ctx, "tester", &model.SaveRuleRequest{
-		ConfigID: v1.ConfigID, Rule: ruleSrc, ResultType: model.ResultTypePassRejectReview,
+	v2, err := service.UpdateRuleConfig(ctx, "tester", &model.UpdateRuleConfigRequest{
+		ConfigID: v1.ConfigID, Name: v1.Name, Rule: ruleSrc, ResultType: model.ResultTypePassRejectReview,
 		TestData: ctxData(1),
 	})
 	if err != nil {

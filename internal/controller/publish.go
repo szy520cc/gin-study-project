@@ -16,7 +16,7 @@ func Publish(c *gin.Context) {
 		return
 	}
 
-	var req model.PublishRequest
+	var req model.IDRequest
 	if !bindJSON(c, &req) {
 		return
 	}

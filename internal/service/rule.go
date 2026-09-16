@@ -98,92 +98,22 @@ func CreateRuleConfig(ctx context.Context, username string, req *model.CreateRul
 	return resp, nil
 }
 
-// SaveRule 保存规则（含编译 + 不可变版本链的 fork 语义）。
+// UpdateRuleConfig 保存一条规则配置（基本信息 + 规则内容），是规则保存的唯一入口
+// （原 /api/v1/configs/rule/save 已合并进本接口）。
 //
 // 流程：
 //  1. 保存闸门：校验规则原文（占位符格式 + Starlark 编译）并带试跑入参真实执行一遍，
 //     任一环节不通过直接拒绝，不落库（见 ensureRuleRunnable）；
-//  2. 编译成 Starlark 成品 + 收集指标 ID；
-//  3. 查指标元信息（供前端回显 bind_var_info）；
-//  4. 按 config 状态分流：
-//     - 草稿（status=0）：原地保存/更新规则；
-//     - 生效（status=1）：fork 新 config（新版本号、status=0、is_latest=1），
-//     老版本 is_latest→2 继续生效，复制旧规则到新版本后更新内容。
+//  2. 编译成 Starlark 成品 + 收集指标 ID，并查指标元信息（供前端回显 bind_var_info）；
+//  3. 规则只能挂 type=rule 的配置（否则保存了也不会被快照加载，eval 静默不执行）；
+//  4. 按 config 状态分流（不可变发布链，线上版本行不被改动）：
+//     - 草稿（status=0）：原地更新 name/remark + 规则；
+//     - 生效（status=1）：fork 新版本（新版本号、status=0、is_latest=1），老版本
+//     is_latest→2 继续生效，本次提交的 name/remark 写到新版本；规则内容由
+//     upsertRule 全量写入新版本（已存在则更新、首次则创建），无需预复制旧规则。
 //
-// 返回 fork 后（或原地）所在 config 的规则响应。
-func SaveRule(ctx context.Context, username string, req *model.SaveRuleRequest) (*model.RuleResponse, error) {
-	// 保存闸门：必须带试跑入参且真实跑通，否则不落库。
-	if err := ensureRuleRunnable(ctx, req.Rule, req.ResultType, req.TestData); err != nil {
-		return nil, err
-	}
-	ruleScript, bindVar := engine.CompileRule(req.Rule)
-
-	c, err := getConfig(ctx, req.ConfigID)
-	if err != nil {
-		return nil, err
-	}
-	// 规则只能挂在 type=rule 的配置下；否则保存了规则但快照组装不会加载它，
-	// eval 永远不执行（静默失败）。
-	if c.Type != model.ConfigTypeRule {
-		return nil, errcode.ErrConfigStatusInvalid.WithDetails("仅规则类型（type=rule）配置可保存规则，当前类型 %s", c.Type)
-	}
-
-	fields, err := data.GetFieldsByIDs(ctx, bindVar)
-	if err != nil {
-		return nil, err
-	}
-
-	ccBytes, err := json.Marshal(&model.RuleConditionConfig{BindVar: bindVar, Rule: req.Rule})
-	if err != nil {
-		return nil, err
-	}
-	conditionConfig := string(ccBytes)
-
-	now := time.Now().Unix()
-	pack := packOf(ctx, c.ProjectID)
-
-	var resp *model.RuleResponse
-	err = transaction.Do(ctx, func(ctx context.Context) error {
-		target := c
-		if c.Status == model.ConfigStatusActive {
-			// 编辑生效版本 → fork 新版本（不可变发布链）；
-			// 规则内容由下方 upsertRule 全量写入新版本（已保存的自动复制、首次的直接创建），
-			// 无需在此预复制旧规则。
-			forked, ferr := forkConfig(ctx, c, username, now)
-			if ferr != nil {
-				return ferr
-			}
-			target = forked
-		}
-		if uerr := upsertRule(ctx, target, pack, ruleScript, conditionConfig, bindVar, req.ResultType, now); uerr != nil {
-			return uerr
-		}
-		resp = buildRuleResponse(target, ruleScript, conditionConfig, bindVar, fields, req.ResultType)
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	// 编辑必删 latest：草稿快照不带版本号，改了草稿必须失效，
-	// 否则 offline 请求会读到旧草稿（最长脏 7 天）。
-	_ = data.DelLatest(ctx, pack, c.Logo)
-	// 同时失效该版本的「版本化快照」：原地编辑草稿时版本号不变，
-	// 若不删，曾被显式 version 求值写入的旧快照会在发布后被默认路径命中。
-	_ = data.DelSnapshot(ctx, pack, c.Logo, resp.Version)
-	// 若改的正是灰度目标版本，还要失效生效版本快照（否则灰度继续跑旧草稿规则）。
-	invalidateGraySnapshotForDraft(ctx, pack, c.Logo, resp.Version)
-	return resp, nil
-}
-
-// UpdateRuleConfig 整配置一次保存（基本信息 + 规则内容）。
-// 「配置管理」页编辑弹层的一次提交入口：同时保存配置 name/remark 与规则内容，
-// 并沿用 SaveRule 的不可变版本链语义：
-//   - 草稿（status=0）：原地更新 name/remark + 规则；
-//   - 生效（status=1）：fork 新版本（新版本号、status=0、is_latest=1），
-//     老版本 is_latest→2 继续生效，本次提交的 name/remark 写到新版本。
-//
-// 保存前先过 ensureRuleRunnable 闸门（试跑入参必填 + 真实执行通过），未通过不落库。
-// 保存后按惯例删除 latest 草稿快照缓存。
+// 保存后失效缓存：latest 草稿快照 + 该版本快照；若该版本正是灰度目标，
+// 还要失效生效版本快照（否则灰度继续跑旧草稿规则）。
 func UpdateRuleConfig(ctx context.Context, username string, req *model.UpdateRuleConfigRequest) (*model.RuleResponse, error) {
 	// 保存闸门：必须带试跑入参且真实跑通，否则不落库。
 	if err := ensureRuleRunnable(ctx, req.Rule, req.ResultType, req.TestData); err != nil {
@@ -196,7 +126,7 @@ func UpdateRuleConfig(ctx context.Context, username string, req *model.UpdateRul
 		return nil, err
 	}
 	if c.Type != model.ConfigTypeRule {
-		return nil, errcode.ErrConfigStatusInvalid.WithDetails("仅规则类型（type=rule）配置可编辑，当前类型 %s", c.Type)
+		return nil, errcode.ErrConfigStatusInvalid.WithDetails("仅规则类型（type=rule）配置可保存规则，当前类型 %s", c.Type)
 	}
 
 	fields, err := data.GetFieldsByIDs(ctx, bindVar)
@@ -237,9 +167,11 @@ func UpdateRuleConfig(ctx context.Context, username string, req *model.UpdateRul
 	if err != nil {
 		return nil, err
 	}
-	// 编辑必删 latest（与 SaveRule 一致）
+	// 编辑必删 latest：草稿快照不带版本号，改了草稿必须失效，
+	// 否则 offline 请求会读到旧草稿（最长脏 7 天）。
 	_ = data.DelLatest(ctx, pack, c.Logo)
-	// 同时失效该版本的「版本化快照」（同 SaveRule，防止原地编辑后旧快照被发布后命中）。
+	// 同时失效该版本的「版本化快照」：原地编辑草稿时版本号不变，
+	// 若不删，曾被显式 version 求值写入的旧快照会在发布后被默认路径命中。
 	_ = data.DelSnapshot(ctx, pack, c.Logo, resp.Version)
 	// 若改的正是灰度目标版本，还要失效生效版本快照（否则灰度继续跑旧草稿规则）。
 	invalidateGraySnapshotForDraft(ctx, pack, c.Logo, resp.Version)
@@ -544,15 +476,6 @@ func isEmptyTestData(v interface{}) bool {
 	return false
 }
 
-// ensureRuleRunnable 保存闸门：规则必须先「带着入参真实跑通」才允许落库。
-//
-// 这是「验证不是独立功能」的落点——新增/编辑配置时不需要单独点验证按钮，
-// 保存接口自己就会跑一遍，跑不通直接拒绝，未验证通过的配置不可能写进数据库。
-//
-// 两道关卡缺一不可：
-//  1. 必须携带试跑入参 JSON —— 只给规则没法验证取值，直接拒绝；
-//  2. 用该入参真实执行 —— 占位符格式错、Starlark 编译错、运行时错、
-//     结果类型不匹配，都会在这里暴露并带着行号/中文说明返回给运营。
 // fieldSource 返回解析路径的顶层来源，例如 material.title -> material。
 func fieldSource(path string) string {
 	if i := strings.IndexByte(path, '.'); i >= 0 {
@@ -592,6 +515,15 @@ func resultValueType(v interface{}) string {
 	return kind.String()
 }
 
+// ensureRuleRunnable 保存闸门：规则必须先「带着入参真实跑通」才允许落库。
+//
+// 这是「验证不是独立功能」的落点——新增/编辑配置时不需要单独点验证按钮，
+// 保存接口自己就会跑一遍，跑不通直接拒绝，未验证通过的配置不可能写进数据库。
+//
+// 两道关卡缺一不可：
+//  1. 必须携带试跑入参 JSON —— 只给规则没法验证取值，直接拒绝；
+//  2. 用该入参真实执行 —— 占位符格式错、Starlark 编译错、运行时错、
+//     结果类型不匹配，都会在这里暴露并带着行号/中文说明返回给运营。
 func ensureRuleRunnable(ctx context.Context, ruleSource, resultType string, rawData interface{}) error {
 	if isEmptyTestData(rawData) {
 		return errcode.ErrRuleInvalid.WithDetails("保存前必须填写「试跑入参（JSON）」：规则要先能真实跑通才允许保存")

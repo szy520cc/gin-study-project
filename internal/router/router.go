@@ -195,15 +195,14 @@ func registerConfigPack(g *gin.RouterGroup, auth gin.HandlerFunc) {
 func registerConfig(g *gin.RouterGroup, auth gin.HandlerFunc) {
 	configs := g.Group("/configs", auth)
 	{
-		configs.POST("/add", controller.CreateConfig)
-		configs.POST("/update", controller.UpdateConfig)
+		// 配置的「新建 / 编辑 / 详情」统一走下面的 rule/* 动作：
+		// 本项目只有 type=rule 一种配置，通用 add/update/detail 与 rule/* 语义重叠
+		// （detail 的字段还是 rule/detail 的子集），已删除；delete 保留（唯一的删除入口）。
 		configs.POST("/delete", controller.DeleteConfig)
 		configs.GET("/list", controller.ListConfigs)
-		configs.GET("/detail", controller.GetConfig)
 		// 规则相关（挂在 config 下）
 		configs.POST("/rule/add", controller.CreateRuleConfig)
 		configs.POST("/rule/update", controller.UpdateRuleConfig)
-		configs.POST("/rule/save", controller.SaveRule)
 		configs.GET("/rule/detail", controller.GetRule)
 		configs.POST("/testrun", controller.TestRun)
 		configs.POST("/import-fields", controller.ImportConfigFields)
@@ -219,6 +218,16 @@ func registerFallbackRoutes(r *gin.Engine) {
 	r.NoMethod(controller.MethodNotAllowed)
 }
 
+// noCache 关掉入口 HTML 与 schema JSON 的浏览器缓存：这两类文件体积很小、
+// 请求极少，但一旦被启发式缓存，就会出现「改了前端却一直看到旧界面」——
+// 静态资源有 ?v= 版本号可破缓存，HTML/schema 没有。
+// （大体积的 SDK / 主题 CSS 走 /admin/static 的 1h 缓存，不受影响。）
+func noCache(c *gin.Context) {
+	c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
+	c.Header("Pragma", "no-cache")
+	c.Header("Expires", "0")
+}
+
 // registerAdminUI 把后台管理 UI（Amis 单页 + schema 文件）挂在 /admin 下。
 //
 // 设计取舍：后台 UI 跟主 API 共享业务 server（8080），而不是塞进 pkg/admin
@@ -230,18 +239,7 @@ func registerFallbackRoutes(r *gin.Engine) {
 //	/admin/             → index.html（Amis 容器）
 //	/admin/login        → login.html（独立登录页，跳过 amis 渲染壳）
 //	/admin/static/...   → SDK / 主题 css（go:embed 一并打入二进制）
-//	/admin/pages/*.json → Amis schema 文件（直接吐 JSON）
-// noCache 让入口 HTML 与页面 schema 每次刷新都必须回源。
-//
-// 这两类文件体积很小、请求极少，但一旦被浏览器启发式缓存，就会出现
-// 「改了前端却一直看到旧界面」：静态资源有 ?v= 版本号可破缓存，HTML/schema 没有。
-// 大体积的 SDK / 主题 CSS 仍然走 /admin/static 的 1h 缓存，不受影响。
-func noCache(c *gin.Context) {
-	c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
-	c.Header("Pragma", "no-cache")
-	c.Header("Expires", "0")
-}
-
+//	/admin/pages/*.json → Amis schema 文件（直接吐 JSON，走 noCache）
 func registerAdminUI(r *gin.Engine) {
 	// /admin/login 必须单独存在：amis 的 init 逻辑会执行登录 API，
 	// 在登录前没有 token，登录页不能依赖 amis-renderer 自身的初始化流程，

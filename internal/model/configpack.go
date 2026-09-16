@@ -72,11 +72,6 @@ type UpdateConfigPackRequest struct {
 	Remark string `json:"remark" binding:"max:2000"`
 }
 
-// DeleteConfigPackRequest 删除配置包请求
-type DeleteConfigPackRequest struct {
-	ID uint64 `json:"id" binding:"required"`
-}
-
 // ConfigPackListRequest 配置包列表请求
 type ConfigPackListRequest struct {
 	Page      int    `form:"page" binding:"omitempty,min=1,max=10000"`
@@ -84,11 +79,6 @@ type ConfigPackListRequest struct {
 	ProjectID string `form:"project_id" binding:"omitempty,max=100"`
 	Name      string `form:"name" binding:"omitempty,max=200"`
 	Status    *uint8 `form:"status" binding:"omitempty,oneof=0 1 2"`
-}
-
-// ConfigPackQueryRequest 按主键查询（query 传 id）
-type ConfigPackQueryRequest struct {
-	ID uint64 `form:"id" binding:"required"`
 }
 
 // ConfigPackResponse 配置包响应

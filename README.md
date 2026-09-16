@@ -820,7 +820,7 @@ GET   /xxx/detail  详情（query 带 id，供编辑回填）
 |------|------|------|
 | GET | `/api/v1/users/profile` | 获取当前用户信息 |
 | PUT | `/api/v1/users/profile` | 更新当前用户信息 |
-| GET | `/api/v1/users` | 用户列表（仅公开字段；`?page=1&page_size=10`） |
+| GET | `/api/v1/users` | 用户列表（**仅公开字段** `id/username/avatar/created_at`，不含 email/phone/status；`?page=1&page_size=10`，暂无其它筛选参数） |
 | GET | `/api/v1/users/:id` | 指定用户的公开信息（不含 email/phone/status） |
 
 #### 项目管理 `/api/v1/projects/*`
@@ -849,24 +849,22 @@ GET   /xxx/detail  详情（query 带 id，供编辑回填）
 
 #### 配置管理 `/api/v1/configs/*`
 
+配置的「新建 / 编辑 / 详情」统一走下面的 `rule/*` 动作（本项目只有 `type=rule` 一种配置）：
+
 | 方法 | 路径 | 描述 |
 |------|------|------|
-| POST | `/add` | 新建配置 |
-| POST | `/update` | 修改 |
-| POST | `/delete` | 删除 |
+| POST | `/delete` | 删除配置（唯一的删除入口） |
 | GET | `/list` | 列表（支持 `project_id` / `config_pack_id` / `name` / `type` / `status` / `is_latest` 筛选） |
-| GET | `/detail` | 详情（`?id=`） |
 
 #### 规则与发布 `/api/v1/configs/*`
 
 | 方法 | 路径 | 描述 | 请求体 |
 |------|------|------|--------|
 | POST | `/rule/add` | 一步创建「type=rule 配置 + 规则内容」，版本号自动生成，`logo` 查重 | `CreateRuleConfigRequest` |
-| POST | `/rule/update` | 更新规则（编辑生效版本会自动 fork 新版本草稿） | `UpdateRuleConfigRequest` |
-| POST | `/rule/save` | 保存规则（编译落库，含 fork 语义） | `SaveRuleRequest` |
+| POST | `/rule/update` | 保存规则（基本信息 + 规则内容；编辑生效版本会自动 fork 新版本草稿） | `UpdateRuleConfigRequest` |
 | GET | `/rule/detail` | 规则详情（含占位符原文供回显 + 引用指标详情） | `?id=` |
 | POST | `/testrun` | **试跑验证**（编译执行，不落库不碰缓存） | `TestRunRequest` |
-| POST | `/publish` | 全量发布 | `PublishRequest` |
+| POST | `/publish` | 全量发布 | `IDRequest` |
 | POST | `/cutprogress` | 灰度切流 | `CutProgressRequest` |
 
 ### 规则求值契约（`/api/v1/engine/eval`）

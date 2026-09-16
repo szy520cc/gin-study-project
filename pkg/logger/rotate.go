@@ -19,8 +19,8 @@ type retention struct {
 }
 
 // rotateWriter 按小时切分日志文件：每个小时只写一个文件，文件名形如
-// app_YYYYMMDDHH.log（例如 app_2026082319.log），换小时时把当前文件
-// 重命名为上一小时的文件。
+// app_YYYYMMDDHH.log（例如 app_2026082319.log）；文件名自带小时，换小时时
+// 直接关旧文件、开新小时文件，不需要 rename（见 rotateLocked）。
 // 所有状态变更都在锁内完成，避免多 goroutine 同时跨小时轮转导致 data race。
 type rotateWriter struct {
 	mu   sync.Mutex

@@ -49,7 +49,7 @@ func GetProject(c *gin.Context) {
 		return
 	}
 
-	var req model.ProjectQueryRequest
+	var req model.IDQueryRequest
 	if !bindQuery(c, &req) {
 		return
 	}
@@ -93,7 +93,7 @@ func UpdateProject(c *gin.Context) {
 // @Tags 项目管理
 // @Produce json
 // @Security Bearer
-// @Param request body model.DeleteProjectRequest true "项目ID"
+// @Param request body model.IDRequest true "项目ID"
 // @Success 200 {object} response.Response
 // @Router /api/v1/projects/delete [post]
 func DeleteProject(c *gin.Context) {
@@ -101,7 +101,7 @@ func DeleteProject(c *gin.Context) {
 		return
 	}
 
-	var req model.DeleteProjectRequest
+	var req model.IDRequest
 	if !bindJSON(c, &req) {
 		return
 	}

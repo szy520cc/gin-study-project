@@ -67,7 +67,7 @@ func UpdateField(c *gin.Context) {
 // @Tags 字段管理
 // @Produce json
 // @Security Bearer
-// @Param request body model.DeleteFieldRequest true "字段ID"
+// @Param request body model.IDRequest true "字段ID"
 // @Success 200 {object} response.Response
 // @Router /api/v1/fields/delete [post]
 func DeleteField(c *gin.Context) {
@@ -75,7 +75,7 @@ func DeleteField(c *gin.Context) {
 		return
 	}
 
-	var req model.DeleteFieldRequest
+	var req model.IDRequest
 	if !bindJSON(c, &req) {
 		return
 	}
@@ -133,7 +133,7 @@ func GetField(c *gin.Context) {
 		return
 	}
 
-	var req model.FieldQueryRequest
+	var req model.IDQueryRequest
 	if !bindQuery(c, &req) {
 		return
 	}
